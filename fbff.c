@@ -120,11 +120,32 @@ static int ffarg(void)
 	return n ? n : 1;
 }
 
-static void ffjmp(int t)
+static int ffpos(void)
 {
-	int64_t n = pts * 1000000.0 * av_q2d(fc->streams[vsi]->time_base)
-			/ 1000000000.0;
-	av_seek_frame(fc, -1, (n + t) * AV_TIME_BASE, AVSEEK_FLAG_ANY);
+	int idx = vsi != -1 ? vsi : asi;
+	double base = av_q2d(fc->streams[idx]->time_base);
+	return pts * 1000.0 * base / 1000.0;
+}
+
+static int fflen(void)
+{
+	int idx = vsi != -1 ? vsi : asi;
+	double base = av_q2d(fc->streams[idx]->time_base);
+	return fc->streams[idx]->duration * 1000.0 * base / 1000.0;
+}
+
+static void ffjmp(int n)
+{
+	int t = ffpos() + n;
+	av_seek_frame(fc, -1, t * AV_TIME_BASE, AVSEEK_FLAG_ANY);
+}
+
+static void printinfo(void)
+{
+	int loc = (int64_t) ffpos() * 1000 / fflen();
+	int pos = ffpos();
+	printf("fbff:   %3d.%d%%   %8ds\r", loc / 10, loc % 10, pos);
+	fflush(stdout);
 }
 
 #define SHORTJMP	(1 << 3)
@@ -155,6 +176,9 @@ static int execkey(void)
 			break;
 		case 'K':
 			ffjmp(-ffarg() * LONGJMP);
+			break;
+		case 'i':
+			printinfo();
 			break;
 		case 27:
 			arg = 0;
