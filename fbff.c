@@ -134,9 +134,9 @@ static int fflen(void)
 	return fc->streams[idx]->duration * 1000.0 * base / 1000.0;
 }
 
-static void ffjmp(int n)
+static void ffjmp(int n, int rel)
 {
-	int t = ffpos() + n;
+	int t = MAX(0, MIN(fflen(), rel ? ffpos() + n : n));
 	av_seek_frame(fc, -1, t * AV_TIME_BASE, AVSEEK_FLAG_ANY);
 }
 
@@ -160,22 +160,26 @@ static int execkey(void)
 		case 'q':
 			return 1;
 		case 'l':
-			ffjmp(ffarg() * SHORTJMP);
+			ffjmp(ffarg() * SHORTJMP, 1);
 			break;
 		case 'h':
-			ffjmp(-ffarg() * SHORTJMP);
+			ffjmp(-ffarg() * SHORTJMP, 1);
 			break;
 		case 'j':
-			ffjmp(ffarg() * NORMJMP);
+			ffjmp(ffarg() * NORMJMP, 1);
 			break;
 		case 'k':
-			ffjmp(-ffarg() * NORMJMP);
+			ffjmp(-ffarg() * NORMJMP, 1);
 			break;
 		case 'J':
-			ffjmp(ffarg() * LONGJMP);
+			ffjmp(ffarg() * LONGJMP, 1);
 			break;
 		case 'K':
-			ffjmp(-ffarg() * LONGJMP);
+			ffjmp(-ffarg() * LONGJMP, 1);
+			break;
+		case '%':
+			if (arg)
+				ffjmp(ffarg() * fflen() / 100, 0);
 			break;
 		case 'i':
 			printinfo();
