@@ -26,8 +26,9 @@ static AVCodec *ac;		/* audio codec */
 
 static snd_pcm_t *alsa;
 static int bps; 		/* bytes per sample */
-static int count;
+static int arg;
 static struct termios termios;
+static uint64_t pts;
 
 static void init_streams(void)
 {
@@ -112,6 +113,24 @@ static int readkey(void)
 	return b;
 }
 
+static int ffarg(void)
+{
+	int n = arg;
+	arg = 0;
+	return n ? n : 1;
+}
+
+static void ffjmp(int t)
+{
+	int64_t n = pts * 1000000.0 * av_q2d(fc->streams[vsi]->time_base)
+			/ 1000000000.0;
+	av_seek_frame(fc, -1, (n + t) * AV_TIME_BASE, AVSEEK_FLAG_ANY);
+}
+
+#define SHORTJMP	(1 << 3)
+#define NORMJMP		(SHORTJMP << 4)
+#define LONGJMP		(NORMJMP << 4)
+
 static int execkey(void)
 {
 	int c;
@@ -119,12 +138,30 @@ static int execkey(void)
 		switch (c) {
 		case 'q':
 			return 1;
+		case 'l':
+			ffjmp(ffarg() * SHORTJMP);
+			break;
+		case 'h':
+			ffjmp(-ffarg() * SHORTJMP);
+			break;
+		case 'j':
+			ffjmp(ffarg() * NORMJMP);
+			break;
+		case 'k':
+			ffjmp(-ffarg() * NORMJMP);
+			break;
+		case 'J':
+			ffjmp(ffarg() * LONGJMP);
+			break;
+		case 'K':
+			ffjmp(-ffarg() * LONGJMP);
+			break;
 		case 27:
-			count = 0;
+			arg = 0;
 			break;
 		default:
 			if (isdigit(c))
-				count = count * 10 + c - '0';
+				arg = arg * 10 + c - '0';
 		}
 	}
 	return 0;
@@ -144,6 +181,8 @@ static void read_frames(void)
 		avpicture_fill((AVPicture *) frame, buf, PIX_FMT_RGB24,
 				vcc->width * ZOOM, vcc->height * ZOOM);
 	while (av_read_frame(fc, &pkt) >= 0) {
+		if (pts < pkt.pts)
+			pts = pkt.pts;
 		if (vcc && pkt.stream_index == vsi)
 			decode_video_frame(main_frame, &pkt);
 		if (acc && pkt.stream_index == asi)
