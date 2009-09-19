@@ -137,9 +137,7 @@ static int ffpos(void)
 
 static int fflen(void)
 {
-	int idx = vsi != -1 ? vsi : asi;
-	double base = av_q2d(fc->streams[idx]->time_base);
-	return fc->streams[idx]->duration * 1000.0 * base / 1000.0;
+	return fc->duration / AV_TIME_BASE;
 }
 
 static void ffjmp(int n, int rel)
