@@ -113,6 +113,14 @@ static int readkey(void)
 	return b;
 }
 
+static void waitkey(void)
+{
+	struct pollfd ufds[1];
+	ufds[0].fd = STDIN_FILENO;
+	ufds[0].events = POLLIN;
+	poll(ufds, 1, -1);
+}
+
 static int ffarg(void)
 {
 	int n = arg;
@@ -152,13 +160,17 @@ static void printinfo(void)
 #define NORMJMP		(SHORTJMP << 4)
 #define LONGJMP		(NORMJMP << 4)
 
+#define FF_PLAY			0
+#define FF_PAUSE		1
+#define FF_EXIT			2
+
 static int execkey(void)
 {
 	int c;
 	while ((c = readkey()) != -1) {
 		switch (c) {
 		case 'q':
-			return 1;
+			return FF_EXIT;
 		case 'l':
 			ffjmp(ffarg() * SHORTJMP, 1);
 			break;
@@ -184,6 +196,10 @@ static int execkey(void)
 		case 'i':
 			printinfo();
 			break;
+		case ' ':
+		case 'p':
+			return FF_PAUSE;
+			break;
 		case 27:
 			arg = 0;
 			break;
@@ -192,7 +208,7 @@ static int execkey(void)
 				arg = arg * 10 + c - '0';
 		}
 	}
-	return 0;
+	return FF_PLAY;
 }
 
 static void read_frames(void)
@@ -216,8 +232,15 @@ static void read_frames(void)
 		if (acc && pkt.stream_index == asi)
 			decode_audio_frame(&pkt);
 		av_free_packet(&pkt);
-		if (execkey())
-			break;
+		switch (execkey()) {
+		case FF_PLAY:
+			continue;
+		case FF_PAUSE:
+			while (readkey() != 'p')
+				waitkey();
+			continue;
+		}
+		break;
 	}
 	av_free(buf);
 	av_free(main_frame);
