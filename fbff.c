@@ -209,7 +209,7 @@ static void read_frames(void)
 		avpicture_fill((AVPicture *) frame, buf, PIX_FMT_RGB24,
 				vcc->width * ZOOM, vcc->height * ZOOM);
 	while (av_read_frame(fc, &pkt) >= 0) {
-		if (pts < pkt.pts)
+		if (pts < pkt.pts && pkt.pts < (1ull << 60))
 			pts = pkt.pts;
 		if (vcc && pkt.stream_index == vsi)
 			decode_video_frame(main_frame, &pkt);
