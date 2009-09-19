@@ -1,6 +1,8 @@
+#include <fcntl.h>
+#include <pty.h>
 #include <stdint.h>
+#include <termios.h>
 #include <unistd.h>
-#include <sys/timeb.h>
 #include <alsa/asoundlib.h>
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
@@ -24,7 +26,8 @@ static AVCodec *ac;		/* audio codec */
 
 static snd_pcm_t *alsa;
 static int bps; 		/* bytes per sample */
-static int goalbr;
+static int count;
+static struct termios termios;
 
 static void init_streams(void)
 {
@@ -101,6 +104,31 @@ static void decode_audio_frame(AVPacket *pkt)
 		tmppkt.data += len;
 	}
 }
+static int readkey(void)
+{
+	char b;
+	if (read(STDIN_FILENO, &b, 1) <= 0)
+		return -1;
+	return b;
+}
+
+static int execkey(void)
+{
+	int c;
+	while ((c = readkey()) != -1) {
+		switch (c) {
+		case 'q':
+			return 1;
+		case 27:
+			count = 0;
+			break;
+		default:
+			if (isdigit(c))
+				count = count * 10 + c - '0';
+		}
+	}
+	return 0;
+}
 
 static void read_frames(void)
 {
@@ -121,6 +149,8 @@ static void read_frames(void)
 		if (acc && pkt.stream_index == asi)
 			decode_audio_frame(&pkt);
 		av_free_packet(&pkt);
+		if (execkey())
+			break;
 	}
 	av_free(buf);
 	av_free(main_frame);
@@ -136,13 +166,27 @@ static void alsa_init(void)
 	snd_pcm_set_params(alsa, format, SND_PCM_ACCESS_RW_INTERLEAVED,
 			acc->channels, acc->sample_rate, 1, 500000);
 	bps = acc->channels * snd_pcm_format_physical_width(format) / 8;
-	goalbr = acc->sample_rate * bps;
 	snd_pcm_prepare(alsa);
 }
 
 static void alsa_close(void)
 {
 	snd_pcm_close(alsa);
+}
+
+static void term_setup(void)
+{
+	struct termios newtermios;
+	tcgetattr(STDIN_FILENO, &termios);
+	newtermios = termios;
+	cfmakeraw(&newtermios);
+	tcsetattr(STDIN_FILENO, TCSAFLUSH, &newtermios);
+	fcntl(STDIN_FILENO, F_SETFL, fcntl(STDIN_FILENO, F_GETFL) | O_NONBLOCK);
+}
+
+static void term_cleanup(void)
+{
+	tcsetattr(STDIN_FILENO, 0, &termios);
 }
 
 int main(int argc, char *argv[])
@@ -156,7 +200,6 @@ int main(int argc, char *argv[])
 		return 1;
 	if (av_find_stream_info(fc) < 0)
 		return 1;
-	dump_format(fc, 0, "input", 0);
 	init_streams();
 	frame = avcodec_alloc_frame();
 	if (acc)
@@ -169,7 +212,9 @@ int main(int argc, char *argv[])
 		fb_init();
 	}
 
+	term_setup();
 	read_frames();
+	term_cleanup();
 
 	if (vcc) {
 		fb_free();
