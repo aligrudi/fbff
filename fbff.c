@@ -9,9 +9,6 @@
 #include <libswscale/swscale.h>
 #include "draw.h"
 
-#define ZOOM			1
-#define ZOOM2			1
-
 static AVFormatContext *fc;
 static AVFrame *frame;
 static struct SwsContext *swsc;
@@ -29,6 +26,9 @@ static int bps; 		/* bytes per sample */
 static int arg;
 static struct termios termios;
 static uint64_t pts;
+
+static int zoom = 1;
+static int magnify = 0;
 
 static void init_streams(void)
 {
@@ -55,8 +55,8 @@ static void draw_frame(void)
 {
 	fbval_t buf[1 << 14];
 	int r, c;
-	int nr = MIN(vcc->height * ZOOM, fb_rows() / ZOOM2);
-	int nc = MIN(vcc->width * ZOOM, fb_cols() / ZOOM2);
+	int nr = MIN(vcc->height * zoom, fb_rows() / magnify);
+	int nc = MIN(vcc->width * zoom, fb_cols() / magnify);
 	int i;
 	for (r = 0; r < nr; r++) {
 		unsigned char *row = frame->data[0] + r * frame->linesize[0];
@@ -64,11 +64,11 @@ static void draw_frame(void)
 			fbval_t v = fb_color(row[c * 3],
 					row[c * 3 + 1],
 					row[c * 3 + 2]);
-			for (i = 0; i < ZOOM2; i++)
-				buf[c * ZOOM2 + i] = v;
+			for (i = 0; i < magnify; i++)
+				buf[c * magnify + i] = v;
 		}
-		for (i = 0; i < ZOOM2; i++)
-			fb_set(r * ZOOM2 + i, 0, buf, nc * ZOOM2);
+		for (i = 0; i < magnify; i++)
+			fb_set(r * magnify + i, 0, buf, nc * magnify);
 	}
 }
 
@@ -216,12 +216,12 @@ static void read_frames(void)
 	uint8_t *buf;
 	int n = AUDIOBUFSIZE;
 	if (vcc)
-		n = avpicture_get_size(PIX_FMT_RGB24, vcc->width * ZOOM,
-					   vcc->height * ZOOM);
+		n = avpicture_get_size(PIX_FMT_RGB24, vcc->width * zoom,
+					   vcc->height * zoom);
 	buf = av_malloc(n * sizeof(uint8_t));
 	if (vcc)
 		avpicture_fill((AVPicture *) frame, buf, PIX_FMT_RGB24,
-				vcc->width * ZOOM, vcc->height * ZOOM);
+				vcc->width * zoom, vcc->height * zoom);
 	while (av_read_frame(fc, &pkt) >= 0) {
 		if (pts < pkt.pts && pkt.pts < (1ull << 60))
 			pts = pkt.pts;
@@ -277,14 +277,27 @@ static void term_cleanup(void)
 	tcsetattr(STDIN_FILENO, 0, &termios);
 }
 
+static void read_args(int argc, char *argv[])
+{
+	int i = 1;
+	while (i < argc) {
+		if (!strcmp(argv[i], "-m"))
+			magnify = atoi(argv[++i]);
+		if (!strcmp(argv[i], "-z"))
+			zoom = atoi(argv[++i]);
+		i++;
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	if (argc < 2) {
-		printf("usage: %s filename\n", argv[0]);
+		printf("usage: %s [-z zoom] [-m magnify] filename\n", argv[0]);
 		return 1;
 	}
+	read_args(argc, argv);
 	av_register_all();
-	if (av_open_input_file(&fc, argv[1], NULL, 0, NULL))
+	if (av_open_input_file(&fc, argv[argc - 1], NULL, 0, NULL))
 		return 1;
 	if (av_find_stream_info(fc) < 0)
 		return 1;
@@ -294,10 +307,12 @@ int main(int argc, char *argv[])
 		alsa_init();
 	if (vcc) {
 		swsc = sws_getContext(vcc->width, vcc->height, vcc->pix_fmt,
-			vcc->width * ZOOM, vcc->height * ZOOM,
+			vcc->width * zoom, vcc->height * zoom,
 			PIX_FMT_RGB24, SWS_FAST_BILINEAR | SWS_CPU_CAPS_MMX2,
 			NULL, NULL, NULL);
 		fb_init();
+		if (!magnify)
+			magnify = fb_rows() / vcc->height / zoom;
 	}
 
 	term_setup();
