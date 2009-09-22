@@ -38,6 +38,7 @@ static uint64_t pts;
 
 static int zoom = 1;
 static int magnify = 0;
+static int drop = 0;
 
 static void init_streams(void)
 {
@@ -224,6 +225,7 @@ static void read_frames(void)
 	AVPacket pkt;
 	uint8_t *buf;
 	int n = AUDIOBUFSIZE;
+	int video_chain = 0;
 	if (vcc)
 		n = avpicture_get_size(PIX_FMT_RGB24, vcc->width * zoom,
 					   vcc->height * zoom);
@@ -235,9 +237,12 @@ static void read_frames(void)
 		if (pts < pkt.pts && pkt.pts < (1ull << 60))
 			pts = pkt.pts;
 		if (vcc && pkt.stream_index == vsi)
-			decode_video_frame(main_frame, &pkt);
-		if (acc && pkt.stream_index == asi)
+			if (!drop || !video_chain++)
+				decode_video_frame(main_frame, &pkt);
+		if (acc && pkt.stream_index == asi) {
 			decode_audio_frame(&pkt);
+			video_chain = 0;
+		}
 		av_free_packet(&pkt);
 		switch (execkey()) {
 		case FF_PLAY:
@@ -294,6 +299,8 @@ static void read_args(int argc, char *argv[])
 			magnify = atoi(argv[++i]);
 		if (!strcmp(argv[i], "-z"))
 			zoom = atoi(argv[++i]);
+		if (!strcmp(argv[i], "-d"))
+			drop = 1;
 		i++;
 	}
 }
@@ -301,7 +308,8 @@ static void read_args(int argc, char *argv[])
 int main(int argc, char *argv[])
 {
 	if (argc < 2) {
-		printf("usage: %s [-z zoom] [-m magnify] filename\n", argv[0]);
+		printf("usage: %s [-z zoom] [-m magnify] [-d] filename\n",
+			argv[0]);
 		return 1;
 	}
 	read_args(argc, argv);
