@@ -35,10 +35,12 @@ static int bps; 		/* bytes per sample */
 static int arg;
 static struct termios termios;
 static uint64_t pts;
+static unsigned long num;
 
 static int zoom = 1;
 static int magnify = 0;
 static int drop = 0;
+static int jump = 0;
 
 static void init_streams(void)
 {
@@ -86,7 +88,7 @@ static void decode_video_frame(AVFrame *main_frame, AVPacket *packet)
 {
 	int fine = 0;
 	avcodec_decode_video2(vcc, main_frame, &fine, packet);
-	if (fine) {
+	if (fine && (!jump || !(num++ % jump))) {
 		sws_scale(swsc, main_frame->data, main_frame->linesize,
 			  0, vcc->height, frame->data, frame->linesize);
 		draw_frame();
@@ -301,6 +303,8 @@ static void read_args(int argc, char *argv[])
 			zoom = atoi(argv[++i]);
 		if (!strcmp(argv[i], "-d"))
 			drop = 1;
+		if (!strcmp(argv[i], "-j"))
+			jump = atoi(argv[++i]);
 		i++;
 	}
 }
@@ -308,8 +312,8 @@ static void read_args(int argc, char *argv[])
 int main(int argc, char *argv[])
 {
 	if (argc < 2) {
-		printf("usage: %s [-z zoom] [-m magnify] [-d] filename\n",
-			argv[0]);
+		printf("usage: %s [-z zoom] [-m magnify] "
+			"[-j jump] [-d] filename\n", argv[0]);
 		return 1;
 	}
 	read_args(argc, argv);
