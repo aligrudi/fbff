@@ -35,7 +35,8 @@ static int bps; 		/* bytes per sample */
 static int arg;
 static struct termios termios;
 static uint64_t pts;
-static unsigned long num;
+static unsigned long num;	/* decoded video frame number */
+static unsigned int vnum;	/* number of successive video frames */
 
 static int zoom = 1;
 static int magnify = 0;
@@ -88,7 +89,7 @@ static void decode_video_frame(AVFrame *main_frame, AVPacket *packet)
 {
 	int fine = 0;
 	avcodec_decode_video2(vcc, main_frame, &fine, packet);
-	if (fine && (!jump || !(num++ % jump))) {
+	if (fine && (!jump || !(num % jump)) && (!drop || !vnum)) {
 		sws_scale(swsc, main_frame->data, main_frame->linesize,
 			  0, vcc->height, frame->data, frame->linesize);
 		draw_frame();
@@ -227,7 +228,6 @@ static void read_frames(void)
 	AVPacket pkt;
 	uint8_t *buf;
 	int n = AUDIOBUFSIZE;
-	int video_chain = 0;
 	if (vcc)
 		n = avpicture_get_size(PIX_FMT_RGB24, vcc->width * zoom,
 					   vcc->height * zoom);
@@ -238,12 +238,14 @@ static void read_frames(void)
 	while (av_read_frame(fc, &pkt) >= 0) {
 		if (pts < pkt.pts && pkt.pts < (1ull << 60))
 			pts = pkt.pts;
-		if (vcc && pkt.stream_index == vsi)
-			if (!drop || !video_chain++)
-				decode_video_frame(main_frame, &pkt);
+		if (vcc && pkt.stream_index == vsi) {
+			decode_video_frame(main_frame, &pkt);
+			vnum++;
+			num++;
+		}
 		if (acc && pkt.stream_index == asi) {
 			decode_audio_frame(&pkt);
-			video_chain = 0;
+			vnum = 0;
 		}
 		av_free_packet(&pkt);
 		switch (execkey()) {
