@@ -39,10 +39,11 @@ static unsigned long num;	/* decoded video frame number */
 static unsigned int vnum;	/* number of successive video frames */
 static int cmd;
 
-static int zoom = 1;
+static float zoom = 1;
 static int magnify = 0;
 static int drop = 0;
 static int jump = 0;
+static int fullscreen = 0;
 
 static void init_streams(void)
 {
@@ -299,11 +300,13 @@ static void read_args(int argc, char *argv[])
 		if (!strcmp(argv[i], "-m"))
 			magnify = atoi(argv[++i]);
 		if (!strcmp(argv[i], "-z"))
-			zoom = atoi(argv[++i]);
-		if (!strcmp(argv[i], "-d"))
-			drop = 1;
+			zoom = atof(argv[++i]);
 		if (!strcmp(argv[i], "-j"))
 			jump = atoi(argv[++i]);
+		if (!strcmp(argv[i], "-d"))
+			drop = 1;
+		if (!strcmp(argv[i], "-f"))
+			fullscreen = 1;
 		i++;
 	}
 }
@@ -312,7 +315,7 @@ int main(int argc, char *argv[])
 {
 	if (argc < 2) {
 		printf("usage: %s [-z zoom] [-m magnify] "
-			"[-j jump] [-d] filename\n", argv[0]);
+			"[-j jump] [-d] [-f] filename\n", argv[0]);
 		return 1;
 	}
 	read_args(argc, argv);
@@ -326,13 +329,15 @@ int main(int argc, char *argv[])
 	if (acc)
 		alsa_init();
 	if (vcc) {
+		fb_init();
+		if (!magnify)
+			magnify = fb_cols() / vcc->width / zoom;
+		if (fullscreen)
+			zoom = (float) fb_cols() / vcc->width / magnify;
 		swsc = sws_getContext(vcc->width, vcc->height, vcc->pix_fmt,
 			vcc->width * zoom, vcc->height * zoom,
 			PIX_FMT_RGB24, SWS_FAST_BILINEAR | SWS_CPU_CAPS_MMX2,
 			NULL, NULL, NULL);
-		fb_init();
-		if (!magnify)
-			magnify = fb_rows() / vcc->height / zoom;
 	}
 
 	term_setup();
