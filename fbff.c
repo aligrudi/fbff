@@ -37,6 +37,7 @@ static struct termios termios;
 static uint64_t pts;
 static unsigned long num;	/* decoded video frame number */
 static unsigned int vnum;	/* number of successive video frames */
+static int cmd;
 
 static int zoom = 1;
 static int magnify = 0;
@@ -175,13 +176,14 @@ static void printinfo(void)
 #define FF_PAUSE		1
 #define FF_EXIT			2
 
-static int execkey(void)
+static void execkey(void)
 {
 	int c;
 	while ((c = readkey()) != -1) {
 		switch (c) {
 		case 'q':
-			return FF_EXIT;
+			cmd = FF_EXIT;
+			break;
 		case 'l':
 			ffjmp(ffarg() * SHORTJMP, 1);
 			break;
@@ -209,7 +211,7 @@ static int execkey(void)
 			break;
 		case ' ':
 		case 'p':
-			return FF_PAUSE;
+			cmd = cmd ? FF_PLAY : FF_PAUSE;
 			break;
 		case 27:
 			arg = 0;
@@ -219,7 +221,6 @@ static int execkey(void)
 				arg = arg * 10 + c - '0';
 		}
 	}
-	return FF_PLAY;
 }
 
 static void read_frames(void)
@@ -235,7 +236,12 @@ static void read_frames(void)
 	if (vcc)
 		avpicture_fill((AVPicture *) frame, buf, PIX_FMT_RGB24,
 				vcc->width * zoom, vcc->height * zoom);
-	while (av_read_frame(fc, &pkt) >= 0) {
+	while (cmd != FF_EXIT && av_read_frame(fc, &pkt) >= 0) {
+		execkey();
+		if (cmd == FF_PAUSE) {
+			waitkey();
+			continue;
+		}
 		if (pts < pkt.pts && pkt.pts < (1ull << 60))
 			pts = pkt.pts;
 		if (vcc && pkt.stream_index == vsi) {
@@ -248,15 +254,6 @@ static void read_frames(void)
 			vnum = 0;
 		}
 		av_free_packet(&pkt);
-		switch (execkey()) {
-		case FF_PLAY:
-			continue;
-		case FF_PAUSE:
-			while (readkey() != 'p')
-				waitkey();
-			continue;
-		}
-		break;
 	}
 	av_free(buf);
 	av_free(main_frame);
