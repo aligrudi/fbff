@@ -9,6 +9,7 @@
  */
 #include <fcntl.h>
 #include <pty.h>
+#include <signal.h>
 #include <stdint.h>
 #include <termios.h>
 #include <unistd.h>
@@ -283,7 +284,8 @@ static void term_setup(void)
 	struct termios newtermios;
 	tcgetattr(STDIN_FILENO, &termios);
 	newtermios = termios;
-	cfmakeraw(&newtermios);
+	newtermios.c_lflag &= ~ICANON;
+	newtermios.c_lflag &= ~ECHO;
 	tcsetattr(STDIN_FILENO, TCSAFLUSH, &newtermios);
 	fcntl(STDIN_FILENO, F_SETFL, fcntl(STDIN_FILENO, F_GETFL) | O_NONBLOCK);
 }
@@ -291,6 +293,11 @@ static void term_setup(void)
 static void term_cleanup(void)
 {
 	tcsetattr(STDIN_FILENO, 0, &termios);
+}
+
+static void sigcont(int sig)
+{
+	term_setup();
 }
 
 static void read_args(int argc, char *argv[])
@@ -341,6 +348,7 @@ int main(int argc, char *argv[])
 	}
 
 	term_setup();
+	signal(SIGCONT, sigcont);
 	read_frames();
 	term_cleanup();
 
