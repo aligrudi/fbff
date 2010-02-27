@@ -58,12 +58,12 @@ static void init_streams(void)
 		if (fc->streams[i]->codec->codec_type == CODEC_TYPE_AUDIO)
 			asi = i;
 	}
-	if (vsi != -1) {
+	if (video && vsi != -1) {
 		vcc = fc->streams[vsi]->codec;
 		vc = avcodec_find_decoder(vcc->codec_id);
 		avcodec_open(vcc, vc);
 	}
-	if (asi != -1) {
+	if (audio && asi != -1) {
 		acc = fc->streams[asi]->codec;
 		ac = avcodec_find_decoder(acc->codec_id);
 		avcodec_open(acc, ac);
@@ -124,6 +124,7 @@ static void decode_audio_frame(AVPacket *pkt)
 		tmppkt.data += len;
 	}
 }
+
 static int readkey(void)
 {
 	char b;
@@ -249,14 +250,14 @@ static void read_frames(void)
 		}
 		if (pts < pkt.pts && pkt.pts < (1ull << 60))
 			pts = pkt.pts;
-		if (video && vcc && pkt.stream_index == vsi) {
+		if (vcc && pkt.stream_index == vsi) {
 			if (rate)
 				usleep(1000000 / rate);
 			decode_video_frame(main_frame, &pkt);
 			vnum++;
 			num++;
 		}
-		if (audio && acc && pkt.stream_index == asi) {
+		if (acc && pkt.stream_index == asi) {
 			decode_audio_frame(&pkt);
 			vnum = 0;
 		}
