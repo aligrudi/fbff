@@ -45,6 +45,9 @@ static int magnify = 0;
 static int drop = 0;
 static int jump = 0;
 static int fullscreen = 0;
+static int audio = 1;
+static int video = 1;
+static int rate = 0;
 
 static void init_streams(void)
 {
@@ -246,12 +249,14 @@ static void read_frames(void)
 		}
 		if (pts < pkt.pts && pkt.pts < (1ull << 60))
 			pts = pkt.pts;
-		if (vcc && pkt.stream_index == vsi) {
+		if (video && vcc && pkt.stream_index == vsi) {
+			if (rate)
+				usleep(1000000 / rate);
 			decode_video_frame(main_frame, &pkt);
 			vnum++;
 			num++;
 		}
-		if (acc && pkt.stream_index == asi) {
+		if (audio && acc && pkt.stream_index == asi) {
 			decode_audio_frame(&pkt);
 			vnum = 0;
 		}
@@ -314,6 +319,12 @@ static void read_args(int argc, char *argv[])
 			drop = 1;
 		if (!strcmp(argv[i], "-f"))
 			fullscreen = 1;
+		if (!strcmp(argv[i], "-r"))
+			rate = atoi(argv[++i]);
+		if (!strcmp(argv[i], "-a"))
+			video = 0;
+		if (!strcmp(argv[i], "-v"))
+			audio = 0;
 		i++;
 	}
 }
