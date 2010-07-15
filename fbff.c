@@ -1,7 +1,7 @@
 /*
  * fbff - A small ffmpeg-based framebuffer/alsa media player
  *
- * Copyright (C) 2009 Ali Gholami Rudi
+ * Copyright (C) 2009-2010 Ali Gholami Rudi
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License, as published by the
@@ -30,6 +30,10 @@ static AVCodec *vc;		/* video codec */
 static int asi = -1;		/* audio stream index */
 static AVCodecContext *acc;	/* audio codec context */
 static AVCodec *ac;		/* audio codec */
+
+static int seek_idx;		/* stream index used for seeking */
+static int pos_cur;		/* current frame number in seek_idx stream */
+static int pos_max;		/* maximum frame number seen so far */
 
 static snd_pcm_t *alsa;
 static int bps; 		/* bytes per sample */
@@ -68,6 +72,7 @@ static void init_streams(void)
 		ac = avcodec_find_decoder(acc->codec_id);
 		avcodec_open(acc, ac);
 	}
+	seek_idx = vcc ? vsi : asi;
 }
 
 static void draw_frame(void)
@@ -148,35 +153,24 @@ static int ffarg(void)
 	return n ? n : 1;
 }
 
-static int ffpos(void)
-{
-	int idx = vsi != -1 ? vsi : asi;
-	double base = av_q2d(fc->streams[idx]->time_base);
-	return pts * 1000.0 * base / 1000.0;
-}
-
-static int fflen(void)
-{
-	return fc->duration / AV_TIME_BASE;
-}
+#define SHORTJMP	(1 << 10)
+#define NORMJMP		(SHORTJMP << 4)
+#define LONGJMP		(NORMJMP << 4)
 
 static void ffjmp(int n, int rel)
 {
-	int t = MAX(0, MIN(fflen(), rel ? ffpos() + n : n));
-	av_seek_frame(fc, -1, t * AV_TIME_BASE, AVSEEK_FLAG_ANY);
+	pos_cur = rel ? pos_cur + n : pos_cur * n / 100;
+	if (pos_cur > pos_max)
+		pos_max = pos_cur;
+	av_seek_frame(fc, seek_idx, pos_cur,
+			AVSEEK_FLAG_FRAME | AVSEEK_FLAG_ANY);
 }
 
 static void printinfo(void)
 {
-	int loc = (int64_t) ffpos() * 1000 / fflen();
-	int pos = ffpos();
-	printf("fbff:   %3d.%d%%   %8ds\r", loc / 10, loc % 10, pos);
+	printf("fbff:   %d\t%d\r", pos_cur, pos_cur * 100 / pos_max);
 	fflush(stdout);
 }
-
-#define SHORTJMP	(1 << 3)
-#define NORMJMP		(SHORTJMP << 4)
-#define LONGJMP		(NORMJMP << 4)
 
 #define FF_PLAY			0
 #define FF_PAUSE		1
@@ -210,7 +204,7 @@ static void execkey(void)
 			break;
 		case '%':
 			if (arg)
-				ffjmp(ffarg() * fflen() / 100, 0);
+				ffjmp(100, 0);
 			break;
 		case 'i':
 			printinfo();
@@ -260,6 +254,11 @@ static void read_frames(void)
 		if (acc && pkt.stream_index == asi) {
 			decode_audio_frame(&pkt);
 			vnum = 0;
+		}
+		if (pkt.stream_index == seek_idx) {
+			pos_cur++;
+			if (pos_cur > pos_max)
+				pos_max = pos_cur;
 		}
 		av_free_packet(&pkt);
 	}
