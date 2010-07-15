@@ -153,17 +153,18 @@ static int ffarg(void)
 	return n ? n : 1;
 }
 
-#define SHORTJMP	(1 << 10)
+#define SHORTJMP	(1 << 12)
 #define NORMJMP		(SHORTJMP << 4)
-#define LONGJMP		(NORMJMP << 4)
+#define LONGJMP		(NORMJMP << 5)
 
 static void ffjmp(int n, int rel)
 {
 	pos_cur = rel ? pos_cur + n : pos_cur * n / 100;
+	if (pos_cur < 0)
+		pos_cur = 0;
 	if (pos_cur > pos_max)
 		pos_max = pos_cur;
-	av_seek_frame(fc, seek_idx, pos_cur,
-			AVSEEK_FLAG_FRAME | AVSEEK_FLAG_ANY);
+	av_seek_frame(fc, seek_idx, pos_cur, AVSEEK_FLAG_FRAME);
 }
 
 static void printinfo(void)
