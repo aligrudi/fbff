@@ -34,6 +34,7 @@ static AVCodec *ac;		/* audio codec */
 static int seek_idx;		/* stream index used for seeking */
 static int pos_cur;		/* current frame number in seek_idx stream */
 static int pos_max;		/* maximum frame number seen so far */
+static int frame_jmp = 1;	/* the changes to pos_cur for each frame */
 
 static snd_pcm_t *alsa;
 static int bps; 		/* bytes per sample */
@@ -46,7 +47,7 @@ static int cmd;
 static float zoom = 1;
 static int magnify = 0;
 static int drop = 0;
-static int jump = 3;
+static int jump = 0;
 static int fullscreen = 0;
 static int audio = 1;
 static int video = 1;
@@ -152,18 +153,15 @@ static int ffarg(void)
 	return n ? n : 1;
 }
 
-#define SHORTJMP	(1 << 12)
-#define NORMJMP		(SHORTJMP << 4)
-#define LONGJMP		(NORMJMP << 5)
-
 static void ffjmp(int n, int rel)
 {
-	pos_cur = rel ? pos_cur + n : pos_cur * n / 100;
+	pos_cur = rel ? pos_cur + n * frame_jmp : pos_cur * n / 100;
 	if (pos_cur < 0)
 		pos_cur = 0;
 	if (pos_cur > pos_max)
 		pos_max = pos_cur;
-	av_seek_frame(fc, seek_idx, pos_cur, AVSEEK_FLAG_FRAME);
+	av_seek_frame(fc, seek_idx, pos_cur,
+			frame_jmp == 1 ? AVSEEK_FLAG_FRAME : 0);
 }
 
 static void printinfo(void)
@@ -171,6 +169,10 @@ static void printinfo(void)
 	printf("fbff:   %d\t%d    \r", pos_cur, pos_cur * 100 / pos_max);
 	fflush(stdout);
 }
+
+#define JMP1		(1 << 5)
+#define JMP2		(JMP1 << 3)
+#define JMP3		(JMP2 << 5)
 
 #define FF_PLAY			0
 #define FF_PAUSE		1
@@ -185,22 +187,22 @@ static void execkey(void)
 			cmd = FF_EXIT;
 			break;
 		case 'l':
-			ffjmp(ffarg() * SHORTJMP, 1);
+			ffjmp(ffarg() * JMP1, 1);
 			break;
 		case 'h':
-			ffjmp(-ffarg() * SHORTJMP, 1);
+			ffjmp(-ffarg() * JMP1, 1);
 			break;
 		case 'j':
-			ffjmp(ffarg() * NORMJMP, 1);
+			ffjmp(ffarg() * JMP2, 1);
 			break;
 		case 'k':
-			ffjmp(-ffarg() * NORMJMP, 1);
+			ffjmp(-ffarg() * JMP2, 1);
 			break;
 		case 'J':
-			ffjmp(ffarg() * LONGJMP, 1);
+			ffjmp(ffarg() * JMP3, 1);
 			break;
 		case 'K':
-			ffjmp(-ffarg() * LONGJMP, 1);
+			ffjmp(-ffarg() * JMP3, 1);
 			break;
 		case '%':
 			if (arg)
@@ -254,7 +256,7 @@ static void read_frames(void)
 			vnum = 0;
 		}
 		if (pkt.stream_index == seek_idx) {
-			pos_cur++;
+			pos_cur += frame_jmp;
 			if (pos_cur > pos_max)
 				pos_max = pos_cur;
 		}
@@ -303,6 +305,18 @@ static void sigcont(int sig)
 	term_setup();
 }
 
+static char *usage = "usage: fbff [options] file\n"
+	"\noptions:\n"
+	"    -m x	magnify the screen by repeating pixels\n"
+	"    -z x	zoom the screen using ffmpeg\n"
+	"    -j x	jump every x video frames; for slow machines\n"
+	"    -d		don't draw following video frames\n"
+	"    -f		start full screen\n"
+	"    -r	x	set the fps; for video only playback\n"
+	"    -v		video only playback\n"
+	"    -a		audio only playback\n"
+	"    -t		use time based seeking; only if the default does't work\n";
+
 static void read_args(int argc, char *argv[])
 {
 	int i = 1;
@@ -323,6 +337,10 @@ static void read_args(int argc, char *argv[])
 			video = 0;
 		if (!strcmp(argv[i], "-v"))
 			audio = 0;
+		if (!strcmp(argv[i], "-t"))
+			frame_jmp = 1024 / 32;
+		if (!strcmp(argv[i], "-h"))
+			printf(usage);
 		i++;
 	}
 }
@@ -330,8 +348,7 @@ static void read_args(int argc, char *argv[])
 int main(int argc, char *argv[])
 {
 	if (argc < 2) {
-		printf("usage: %s [-z zoom] [-m magnify] "
-			"[-j jump] [-d] [-f] filename\n", argv[0]);
+		printf("usage: %s [options] filename\n", argv[0]);
 		return 1;
 	}
 	read_args(argc, argv);
