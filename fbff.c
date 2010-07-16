@@ -39,7 +39,6 @@ static snd_pcm_t *alsa;
 static int bps; 		/* bytes per sample */
 static int arg;
 static struct termios termios;
-static uint64_t pts;
 static unsigned long num;	/* decoded video frame number */
 static unsigned int vnum;	/* number of successive video frames */
 static int cmd;
@@ -47,7 +46,7 @@ static int cmd;
 static float zoom = 1;
 static int magnify = 0;
 static int drop = 0;
-static int jump = 0;
+static int jump = 3;
 static int fullscreen = 0;
 static int audio = 1;
 static int video = 1;
@@ -169,7 +168,7 @@ static void ffjmp(int n, int rel)
 
 static void printinfo(void)
 {
-	printf("fbff:   %d\t%d\r", pos_cur, pos_cur * 100 / pos_max);
+	printf("fbff:   %d\t%d    \r", pos_cur, pos_cur * 100 / pos_max);
 	fflush(stdout);
 }
 
@@ -243,8 +242,6 @@ static void read_frames(void)
 			waitkey();
 			continue;
 		}
-		if (pts < pkt.pts && pkt.pts < (1ull << 60))
-			pts = pkt.pts;
 		if (vcc && pkt.stream_index == vsi) {
 			if (rate)
 				usleep(1000000 / rate);
