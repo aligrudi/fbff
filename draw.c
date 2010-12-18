@@ -8,7 +8,6 @@
 #include <string.h>
 #include "draw.h"
 
-#define MAXFBWIDTH	(1 << 12)
 #define BPP		sizeof(fbval_t)
 #define NLEVELS		(1 << 8)
 
@@ -19,7 +18,7 @@ static struct fb_fix_screeninfo finfo;
 static int rl, rr, gl, gr, bl, br;
 static int nr, ng, nb;
 
-static int fb_len()
+static int fb_len(void)
 {
 	return finfo.line_length * vinfo.yres_virtual;
 }
@@ -100,6 +99,7 @@ void fb_init(void)
 		xerror("ioctl failed");
 	if ((vinfo.bits_per_pixel + 7) >> 3 != BPP)
 		xdie("fbval_t does not match framebuffer depth");
+	fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);
 	init_colors();
 	fb = mmap(NULL, fb_len(), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 	if (fb == MAP_FAILED)
@@ -115,7 +115,7 @@ void fb_set(int r, int c, fbval_t *mem, int len)
 	memcpy(fb + loc, mem, len * BPP);
 }
 
-void fb_free()
+void fb_free(void)
 {
 	fb_cmap_save(0);
 	munmap(fb, fb_len());
@@ -135,24 +135,4 @@ int fb_rows(void)
 int fb_cols(void)
 {
 	return vinfo.xres;
-}
-
-static unsigned char *rowaddr(int r)
-{
-	return fb + (r + vinfo.yoffset) * finfo.line_length;
-}
-
-static unsigned long cache[MAXFBWIDTH];
-void fb_box(int sr, int sc, int er, int ec, fbval_t val)
-{
-	int i;
-	int pc = sizeof(cache[0]) / sizeof(val);
-	int cn = MIN((ec - sc) / pc + 1, MAXFBWIDTH);
-	unsigned long nv = val;
-	for (i = 1; i < pc; i++)
-		nv = (nv << (sizeof(val) * 8)) | val;
-	for (i = 0; i < cn; i++)
-		cache[i] = nv;
-	for (i = sr; i < er; i++)
-		memcpy(rowaddr(i) + sc * BPP, cache, (ec - sc) * BPP);
 }
