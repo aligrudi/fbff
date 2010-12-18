@@ -52,6 +52,7 @@ static int fullscreen = 0;
 static int audio = 1;
 static int video = 1;
 static int rate = 0;
+static int just = 0;
 
 static void init_streams(void)
 {
@@ -81,6 +82,7 @@ static void draw_frame(void)
 	int r, c;
 	int nr = MIN(vcc->height * zoom, fb_rows() / magnify);
 	int nc = MIN(vcc->width * zoom, fb_cols() / magnify);
+	int cb = just ? fb_cols() - nc * magnify : 0;
 	int i;
 	for (r = 0; r < nr; r++) {
 		unsigned char *row = frame->data[0] + r * frame->linesize[0];
@@ -92,7 +94,7 @@ static void draw_frame(void)
 				buf[c * magnify + i] = v;
 		}
 		for (i = 0; i < magnify; i++)
-			fb_set(r * magnify + i, 0, buf, nc * magnify);
+			fb_set(r * magnify + i, cb, buf, nc * magnify);
 	}
 }
 
@@ -307,15 +309,16 @@ static void sigcont(int sig)
 
 static char *usage = "usage: fbff [options] file\n"
 	"\noptions:\n"
-	"    -m x	magnify the screen by repeating pixels\n"
-	"    -z x	zoom the screen using ffmpeg\n"
-	"    -j x	jump every x video frames; for slow machines\n"
-	"    -d		don't draw following video frames\n"
-	"    -f		start full screen\n"
-	"    -r	x	set the fps; for video only playback\n"
-	"    -v		video only playback\n"
-	"    -a		audio only playback\n"
-	"    -t		use time based seeking; only if the default does't work\n";
+	"  -m x     magnify the screen by repeating pixels\n"
+	"  -z x     zoom the screen using ffmpeg\n"
+	"  -j x     jump every x video frames; for slow machines\n"
+	"  -d       don't draw following video frames\n"
+	"  -f       start full screen\n"
+	"  -r x     set the fps; for video only playback\n"
+	"  -v       video only playback\n"
+	"  -a       audio only playback\n"
+	"  -t       use time based seeking; only if the default does't work\n"
+	"  -R       adjust the video to the right of the screen\n\n";
 
 static void read_args(int argc, char *argv[])
 {
@@ -341,6 +344,8 @@ static void read_args(int argc, char *argv[])
 			frame_jmp = 1024 / 32;
 		if (!strcmp(argv[i], "-h"))
 			printf(usage);
+		if (!strcmp(argv[i], "-R"))
+			just = 1;
 		i++;
 	}
 }
