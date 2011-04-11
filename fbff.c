@@ -41,13 +41,11 @@ static int bps; 		/* bytes per sample */
 static int arg;
 static struct termios termios;
 static unsigned long num;	/* decoded video frame number */
-static unsigned int vnum;	/* number of successive video frames */
 static int cmd;
 static long last_ts;
 
 static float zoom = 1;
 static int magnify = 0;
-static int drop = 0;
 static int jump = 0;
 static int fullscreen = 0;
 static int audio = 1;
@@ -104,7 +102,7 @@ static void decode_video_frame(AVFrame *main_frame, AVPacket *packet)
 {
 	int fine = 0;
 	avcodec_decode_video2(vcc, main_frame, &fine, packet);
-	if (fine && (!jump || !(num % jump)) && (!drop || !vnum)) {
+	if (fine && (!jump || !(num % jump))) {
 		sws_scale(swsc, main_frame->data, main_frame->linesize,
 			  0, vcc->height, frame->data, frame->linesize);
 		draw_frame();
@@ -271,13 +269,10 @@ static void read_frames(void)
 			}
 			last_ts = ts_ms();
 			decode_video_frame(main_frame, &pkt);
-			vnum++;
 			num++;
 		}
-		if (acc && pkt.stream_index == asi) {
+		if (acc && pkt.stream_index == asi)
 			decode_audio_frame(&pkt);
-			vnum = 0;
-		}
 		if (pkt.stream_index == seek_idx) {
 			pos_cur += frame_jmp;
 			if (pos_cur > pos_max)
@@ -333,7 +328,6 @@ static char *usage = "usage: fbff [options] file\n"
 	"  -m x     magnify the screen by repeating pixels\n"
 	"  -z x     zoom the screen using ffmpeg\n"
 	"  -j x     jump every x video frames; for slow machines\n"
-	"  -d       don't draw following video frames\n"
 	"  -f       start full screen\n"
 	"  -v       video only playback\n"
 	"  -a       audio only playback\n"
@@ -350,8 +344,6 @@ static void read_args(int argc, char *argv[])
 			zoom = atof(argv[++i]);
 		if (!strcmp(argv[i], "-j"))
 			jump = atoi(argv[++i]);
-		if (!strcmp(argv[i], "-d"))
-			drop = 1;
 		if (!strcmp(argv[i], "-f"))
 			fullscreen = 1;
 		if (!strcmp(argv[i], "-a"))
