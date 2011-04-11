@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <termios.h>
 #include <unistd.h>
+#include <sys/time.h>
 #include <alsa/asoundlib.h>
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
@@ -43,6 +44,7 @@ static struct termios termios;
 static unsigned long num;	/* decoded video frame number */
 static unsigned int vnum;	/* number of successive video frames */
 static int cmd;
+static long last_ts;
 
 static float zoom = 1;
 static int magnify = 0;
@@ -51,7 +53,6 @@ static int jump = 0;
 static int fullscreen = 0;
 static int audio = 1;
 static int video = 1;
-static int rate = 0;
 static int just = 0;
 
 static void init_streams(void)
@@ -164,6 +165,7 @@ static void ffjmp(int n, int rel)
 		pos_max = pos_cur;
 	av_seek_frame(fc, seek_idx, pos_cur,
 			frame_jmp == 1 ? AVSEEK_FLAG_FRAME : 0);
+	last_ts = 0;
 }
 
 static void printinfo(void)
@@ -227,6 +229,20 @@ static void execkey(void)
 	}
 }
 
+static long ts_ms(void)
+{
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
+static void wait(long ts, int vdelay)
+{
+	int nts = ts_ms();
+	if (ts + vdelay > nts)
+		usleep((ts + vdelay - nts) * 1000);
+}
+
 static void read_frames(void)
 {
 	AVFrame *main_frame = avcodec_alloc_frame();
@@ -247,8 +263,12 @@ static void read_frames(void)
 			continue;
 		}
 		if (vcc && pkt.stream_index == vsi) {
-			if (rate)
-				usleep(1000000 / rate);
+			if (!audio && last_ts) {
+				AVRational *r = &fc->streams[vsi]->time_base;
+				int vdelay = 1000 * r->num / r->den;
+				wait(last_ts, vdelay);
+			}
+			last_ts = ts_ms();
 			decode_video_frame(main_frame, &pkt);
 			vnum++;
 			num++;
@@ -314,7 +334,6 @@ static char *usage = "usage: fbff [options] file\n"
 	"  -j x     jump every x video frames; for slow machines\n"
 	"  -d       don't draw following video frames\n"
 	"  -f       start full screen\n"
-	"  -r x     set the fps; for video only playback\n"
 	"  -v       video only playback\n"
 	"  -a       audio only playback\n"
 	"  -t       use time based seeking; only if the default does't work\n"
@@ -334,8 +353,6 @@ static void read_args(int argc, char *argv[])
 			drop = 1;
 		if (!strcmp(argv[i], "-f"))
 			fullscreen = 1;
-		if (!strcmp(argv[i], "-r"))
-			rate = atoi(argv[++i]);
 		if (!strcmp(argv[i], "-a"))
 			video = 0;
 		if (!strcmp(argv[i], "-v"))
@@ -377,7 +394,6 @@ int main(int argc, char *argv[])
 			PIX_FMT_RGB24, SWS_FAST_BILINEAR | SWS_CPU_CAPS_MMX2,
 			NULL, NULL, NULL);
 	}
-
 	term_setup();
 	signal(SIGCONT, sigcont);
 	read_frames();
