@@ -1,11 +1,6 @@
 #define MIN(a, b)	((a) < (b) ? (a) : (b))
 #define MAX(a, b)	((a) > (b) ? (a) : (b))
 
-/* framebuffer device */
-#define FBDEV_PATH	"/dev/fb0"
-/* framebuffer depth */
-typedef unsigned int fbval_t;
-
 void fb_init(void);
 void fb_free(void);
 fbval_t fb_color(unsigned char r, unsigned char g, unsigned char b);

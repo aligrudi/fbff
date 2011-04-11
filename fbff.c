@@ -1,11 +1,9 @@
 /*
- * fbff - A small ffmpeg-based framebuffer/alsa media player
+ * fbff - a small ffmpeg-based framebuffer/alsa media player
  *
- * Copyright (C) 2009-2010 Ali Gholami Rudi
+ * Copyright (C) 2009-2011 Ali Gholami Rudi
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License, as published by the
- * Free Software Foundation.
+ * This program is released under GNU GPL version 2.
  */
 #include <fcntl.h>
 #include <pty.h>
@@ -18,6 +16,7 @@
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
+#include "config.h"
 #include "draw.h"
 
 static AVFormatContext *fc;
@@ -87,10 +86,12 @@ static void draw_frame(void)
 	int i;
 	for (r = 0; r < nr; r++) {
 		unsigned char *row = frame->data[0] + r * frame->linesize[0];
+		if (magnify == 1) {
+			fb_set(r, cb, (void *) row, nc);
+			continue;
+		}
 		for (c = 0; c < nc; c++) {
-			fbval_t v = fb_color(row[c * 3],
-					row[c * 3 + 1],
-					row[c * 3 + 2]);
+			fbval_t v = *(fbval_t *) (row + c * 2);
 			for (i = 0; i < magnify; i++)
 				buf[c * magnify + i] = v;
 		}
@@ -250,11 +251,11 @@ static void read_frames(void)
 	uint8_t *buf;
 	int n = AUDIOBUFSIZE;
 	if (vcc)
-		n = avpicture_get_size(PIX_FMT_RGB24, vcc->width * zoom,
+		n = avpicture_get_size(FFMPEG_PIXFMT, vcc->width * zoom,
 					   vcc->height * zoom);
 	buf = av_malloc(n * sizeof(uint8_t));
 	if (vcc)
-		avpicture_fill((AVPicture *) frame, buf, PIX_FMT_RGB24,
+		avpicture_fill((AVPicture *) frame, buf, FFMPEG_PIXFMT,
 				vcc->width * zoom, vcc->height * zoom);
 	while (cmd != FF_EXIT && av_read_frame(fc, &pkt) >= 0) {
 		execkey();
@@ -391,7 +392,7 @@ int main(int argc, char *argv[])
 			zoom = (float) fb_cols() / vcc->width / magnify;
 		swsc = sws_getContext(vcc->width, vcc->height, vcc->pix_fmt,
 			vcc->width * zoom, vcc->height * zoom,
-			PIX_FMT_RGB24, SWS_FAST_BILINEAR | SWS_CPU_CAPS_MMX2,
+			FFMPEG_PIXFMT, SWS_FAST_BILINEAR | SWS_CPU_CAPS_MMX2,
 			NULL, NULL, NULL);
 	}
 	term_setup();
