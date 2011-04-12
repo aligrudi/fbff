@@ -1,5 +1,5 @@
 /*
- * fbff - a small ffmpeg-based framebuffer/alsa media player
+ * fbff - a small ffmpeg-based framebuffer/oss media player
  *
  * Copyright (C) 2009-2011 Ali Gholami Rudi
  *
@@ -7,42 +7,32 @@
  */
 #include <fcntl.h>
 #include <pty.h>
+#include <ctype.h>
 #include <signal.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <termios.h>
 #include <unistd.h>
-#include <sys/time.h>
-#include <alsa/asoundlib.h>
-#include <libavformat/avformat.h>
+#include <sys/poll.h>
+#include <sys/soundcard.h>
+#include <pthread.h>
 #include <libavcodec/avcodec.h>
-#include <libswscale/swscale.h>
 #include "config.h"
+#include "ffs.h"
 #include "draw.h"
 
-static AVFormatContext *fc;
-static AVFrame *frame;
-static struct SwsContext *swsc;
+#define FF_PLAY			0
+#define FF_PAUSE		1
+#define FF_EXIT			2
 
-static int vsi = -1;		/* video stream index */
-static AVCodecContext *vcc;	/* video codec context */
-static AVCodec *vc;		/* video codec */
-
-static int asi = -1;		/* audio stream index */
-static AVCodecContext *acc;	/* audio codec context */
-static AVCodec *ac;		/* audio codec */
-
-static int seek_idx;		/* stream index used for seeking */
-static int pos_cur;		/* current frame number in seek_idx stream */
-static int pos_max;		/* maximum frame number seen so far */
 static int frame_jmp = 1;	/* the changes to pos_cur for each frame */
+static int afd;			/* oss fd */
 
-static snd_pcm_t *alsa;
-static int bps; 		/* bytes per sample */
 static int arg;
 static struct termios termios;
-static unsigned long num;	/* decoded video frame number */
 static int cmd;
-static long last_ts;
 
 static float zoom = 1;
 static int magnify = 0;
@@ -52,84 +42,56 @@ static int audio = 1;
 static int video = 1;
 static int just = 0;
 
-static void init_streams(void)
-{
-	int i;
-	for (i = 0; i < fc->nb_streams; i++) {
-		if (fc->streams[i]->codec->codec_type == CODEC_TYPE_VIDEO)
-			vsi = i;
-		if (fc->streams[i]->codec->codec_type == CODEC_TYPE_AUDIO)
-			asi = i;
-	}
-	if (video && vsi != -1) {
-		vcc = fc->streams[vsi]->codec;
-		vc = avcodec_find_decoder(vcc->codec_id);
-		avcodec_open(vcc, vc);
-	}
-	if (audio && asi != -1) {
-		acc = fc->streams[asi]->codec;
-		ac = avcodec_find_decoder(acc->codec_id);
-		avcodec_open(acc, ac);
-	}
-	seek_idx = vcc ? vsi : asi;
-}
+static struct ffs *affs;		/* audio ffmpeg stream */
+static struct ffs *vffs;		/* video ffmpeg stream */
 
-static void draw_frame(void)
+static void draw_frame(fbval_t *img, int linelen)
 {
+	int w, h;
 	fbval_t buf[1 << 14];
-	int r, c;
-	int nr = MIN(vcc->height * zoom, fb_rows() / magnify);
-	int nc = MIN(vcc->width * zoom, fb_cols() / magnify);
-	int cb = just ? fb_cols() - nc * magnify : 0;
-	int i;
+	int nr, nc, cb;
+	int i, r, c;
+	ffs_vinfo(vffs, &w, &h);
+	nr = MIN(h * zoom, fb_rows() / magnify);
+	nc = MIN(w * zoom, fb_cols() / magnify);
+	cb = just ? fb_cols() - nc * magnify : 0;
 	for (r = 0; r < nr; r++) {
-		unsigned char *row = frame->data[0] + r * frame->linesize[0];
+		fbval_t *row = (void *) img + r * linelen;
 		if (magnify == 1) {
-			fb_set(r, cb, (void *) row, nc);
+			fb_set(r, cb, row, nc);
 			continue;
 		}
-		for (c = 0; c < nc; c++) {
-			fbval_t v = *(fbval_t *) (row + c * 2);
+		for (c = 0; c < nc; c++)
 			for (i = 0; i < magnify; i++)
-				buf[c * magnify + i] = v;
-		}
+				buf[c * magnify + i] = row[c];
 		for (i = 0; i < magnify; i++)
 			fb_set(r * magnify + i, cb, buf, nc * magnify);
 	}
 }
 
-static void decode_video_frame(AVFrame *main_frame, AVPacket *packet)
+#define ABUFSZ		(1 << 18)
+#define BUFS		(1 << 6)
+static int a_cons;
+static int a_prod;
+static char a_buf[BUFS][ABUFSZ];
+static int a_len[BUFS];
+static int a_reset;
+
+static int a_conswait(void)
 {
-	int fine = 0;
-	avcodec_decode_video2(vcc, main_frame, &fine, packet);
-	if (fine && (!jump || !(num % jump))) {
-		sws_scale(swsc, main_frame->data, main_frame->linesize,
-			  0, vcc->height, frame->data, frame->linesize);
-		draw_frame();
-	}
+	return a_cons == a_prod;
 }
 
-#define AUDIOBUFSIZE		(1 << 20)
-
-static void decode_audio_frame(AVPacket *pkt)
+static int a_prodwait(void)
 {
-	char buf[AUDIOBUFSIZE];
-	AVPacket tmppkt;
-	tmppkt.size = pkt->size;
-	tmppkt.data = pkt->data;
-	while (tmppkt.size > 0) {
-		int size = sizeof(buf);
-		int len = avcodec_decode_audio3(acc, (int16_t *) buf,
-						&size, &tmppkt);
-		if (len < 0)
-			break;
-		if (size <= 0)
-			continue;
-		if (snd_pcm_writei(alsa, buf, size / bps) < 0)
-			snd_pcm_prepare(alsa);
-		tmppkt.size -= len;
-		tmppkt.data += len;
-	}
+	return ((a_prod + 1) & (BUFS - 1)) == a_cons;
+}
+
+static void a_doreset(int pause)
+{
+	a_reset = 1 + pause;
+	while (audio && a_reset)
+		usleep(1000);
 }
 
 static int readkey(void)
@@ -157,29 +119,25 @@ static int ffarg(void)
 
 static void ffjmp(int n, int rel)
 {
-	pos_cur = rel ? pos_cur + n * frame_jmp : pos_cur * n / 100;
-	if (pos_cur < 0)
-		pos_cur = 0;
-	if (pos_cur > pos_max)
-		pos_max = pos_cur;
-	av_seek_frame(fc, seek_idx, pos_cur,
-			frame_jmp == 1 ? AVSEEK_FLAG_FRAME : 0);
-	last_ts = 0;
+	struct ffs *ffs = video ? vffs : affs;
+	long pos = ffs_pos(ffs, n);
+	a_doreset(0);
+	if (audio)
+		ffs_seek(affs, pos, frame_jmp);
+	if (video)
+		ffs_seek(vffs, pos, frame_jmp);
 }
 
 static void printinfo(void)
 {
-	printf("fbff:   %d\t%d    \r", pos_cur, pos_cur * 100 / pos_max);
+	struct ffs *ffs = video ? vffs : affs;
+	printf("fbff:   %8lx\r", ffs_pos(ffs, 0));
 	fflush(stdout);
 }
 
 #define JMP1		(1 << 5)
 #define JMP2		(JMP1 << 3)
 #define JMP3		(JMP2 << 5)
-
-#define FF_PLAY			0
-#define FF_PAUSE		1
-#define FF_EXIT			2
 
 static void execkey(void)
 {
@@ -228,78 +186,87 @@ static void execkey(void)
 	}
 }
 
-static long ts_ms(void)
-{
-	struct timeval tv;
-	gettimeofday(&tv, NULL);
-	return tv.tv_sec * 1000 + tv.tv_usec / 1000;
-}
+#define MAXAVDIFF	120
 
-static void wait(long ts, int vdelay)
+static int is_vsync(void)
 {
-	int nts = ts_ms();
-	if (ts + vdelay > nts)
-		usleep((ts + vdelay - nts) * 1000);
+	return !audio || ffs_seq(vffs, 1) + MAXAVDIFF < ffs_seq(affs, 1);
 }
 
 static void read_frames(void)
 {
-	AVFrame *main_frame = avcodec_alloc_frame();
-	AVPacket pkt;
-	uint8_t *buf;
-	int n = AUDIOBUFSIZE;
-	if (vcc)
-		n = avpicture_get_size(FFMPEG_PIXFMT, vcc->width * zoom,
-					   vcc->height * zoom);
-	buf = av_malloc(n * sizeof(uint8_t));
-	if (vcc)
-		avpicture_fill((AVPicture *) frame, buf, FFMPEG_PIXFMT,
-				vcc->width * zoom, vcc->height * zoom);
-	while (cmd != FF_EXIT && av_read_frame(fc, &pkt) >= 0) {
+	while (cmd != FF_EXIT) {
 		execkey();
 		if (cmd == FF_PAUSE) {
+			a_doreset(1);
 			waitkey();
 			continue;
 		}
-		if (vcc && pkt.stream_index == vsi) {
-			if (!audio && last_ts) {
-				AVRational *r = &fc->streams[vsi]->time_base;
-				int vdelay = 1000 * r->num / r->den;
-				wait(last_ts, vdelay);
+		while (audio && !a_prodwait()) {
+			int ret = ffs_adec(affs, a_buf[a_prod], ABUFSZ);
+			if (ret < 0)
+				goto eof;
+			if (ret > 0) {
+				a_len[a_prod] = ret;
+				a_prod = (a_prod + 1) & (BUFS - 1);
 			}
-			last_ts = ts_ms();
-			decode_video_frame(main_frame, &pkt);
-			num++;
 		}
-		if (acc && pkt.stream_index == asi)
-			decode_audio_frame(&pkt);
-		if (pkt.stream_index == seek_idx) {
-			pos_cur += frame_jmp;
-			if (pos_cur > pos_max)
-				pos_max = pos_cur;
+		if (video && is_vsync()) {
+			int ignore = jump && !(ffs_seq(vffs, 0) % (jump + 1));
+			char *buf;
+			int ret = ffs_vdec(vffs, ignore ? NULL : &buf);
+			if (ret < 0)
+				goto eof;
+			if (ret > 0)
+				draw_frame((void *) buf, ret);
+			ffs_wait(vffs);
 		}
-		av_free_packet(&pkt);
 	}
-	av_free(buf);
-	av_free(main_frame);
+eof:
+	cmd = FF_EXIT;
+	a_doreset(0);
 }
 
-#define ALSADEV			"default"
-
-static void alsa_init(void)
+static void oss_init(void)
 {
-	int format = SND_PCM_FORMAT_S16_LE;
-	if (snd_pcm_open(&alsa, ALSADEV, SND_PCM_STREAM_PLAYBACK, 0) < 0)
-		return;
-	snd_pcm_set_params(alsa, format, SND_PCM_ACCESS_RW_INTERLEAVED,
-			acc->channels, acc->sample_rate, 1, 500000);
-	bps = acc->channels * snd_pcm_format_physical_width(format) / 8;
-	snd_pcm_prepare(alsa);
+	int rate, ch, bps;
+	afd = open("/dev/dsp", O_RDWR);
+	if (afd < 0) {
+		fprintf(stderr, "cannot open /dev/dsp\n");
+		exit(1);
+	}
+	ffs_ainfo(affs, &rate, &bps, &ch);
+	ioctl(afd, SOUND_PCM_WRITE_RATE, &rate);
+	ioctl(afd, SOUND_PCM_WRITE_CHANNELS, &ch);
+	ioctl(afd, SOUND_PCM_WRITE_BITS, &bps);
 }
 
-static void alsa_close(void)
+static void oss_close(void)
 {
-	snd_pcm_close(alsa);
+	close(afd);
+}
+
+static void *process_audio(void *dat)
+{
+	oss_init();
+	while (1) {
+		while (!a_reset && (a_conswait() || cmd == FF_PAUSE)) {
+			if (cmd == FF_EXIT)
+				goto ret;
+			usleep(1000);
+		}
+		if (a_reset) {
+			if (a_reset == 1)
+				a_cons = a_prod;
+			a_reset = 0;
+			continue;
+		}
+		write(afd, a_buf[a_cons], a_len[a_cons]);
+		a_cons = (a_cons + 1) & (BUFS - 1);
+	}
+ret:
+	oss_close();
+	return NULL;
 }
 
 static void term_setup(void)
@@ -362,46 +329,44 @@ static void read_args(int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
+	pthread_t a_thread;
+	char *path = argv[argc - 1];
 	if (argc < 2) {
 		printf("usage: %s [options] filename\n", argv[0]);
 		return 1;
 	}
 	read_args(argc, argv);
-	av_register_all();
-	if (av_open_input_file(&fc, argv[argc - 1], NULL, 0, NULL))
+	ffs_globinit();
+	if (video && !(vffs = ffs_alloc(path, 1)))
+		video = 0;
+	if (audio && !(affs = ffs_alloc(path, 0)))
+		audio = 0;
+	if (!video && !audio)
 		return 1;
-	if (av_find_stream_info(fc) < 0)
-		return 1;
-	init_streams();
-	frame = avcodec_alloc_frame();
-	if (acc)
-		alsa_init();
-	if (vcc) {
+	if (audio)
+		pthread_create(&a_thread, NULL, process_audio, NULL);
+	if (video) {
+		int w, h;
 		fb_init();
+		ffs_vinfo(vffs, &w, &h);
 		if (!magnify)
-			magnify = fb_cols() / vcc->width / zoom;
+			magnify = fb_cols() / w / zoom;
 		if (fullscreen)
-			zoom = (float) fb_cols() / vcc->width / magnify;
-		swsc = sws_getContext(vcc->width, vcc->height, vcc->pix_fmt,
-			vcc->width * zoom, vcc->height * zoom,
-			FFMPEG_PIXFMT, SWS_FAST_BILINEAR | SWS_CPU_CAPS_MMX2,
-			NULL, NULL, NULL);
+			zoom = (float) fb_cols() / w / magnify;
+		ffs_vsetup(vffs, zoom, FFMPEG_PIXFMT);
 	}
 	term_setup();
 	signal(SIGCONT, sigcont);
 	read_frames();
 	term_cleanup();
 
-	if (vcc) {
+	if (video) {
 		fb_free();
-		sws_freeContext(swsc);
-		avcodec_close(vcc);
+		ffs_free(vffs);
 	}
-	if (acc) {
-		alsa_close();
-		avcodec_close(acc);
+	if (audio) {
+		pthread_join(a_thread, NULL);
+		ffs_free(affs);
 	}
-	av_free(frame);
-	av_close_input_file(fc);
 	return 0;
 }
