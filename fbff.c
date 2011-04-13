@@ -197,6 +197,7 @@ static int is_vsync(void)
 
 static void mainloop(void)
 {
+	int eof = 0;
 	while (cmd != FF_EXIT) {
 		execkey();
 		if (cmd == FF_PAUSE) {
@@ -204,27 +205,26 @@ static void mainloop(void)
 			waitkey();
 			continue;
 		}
-		while (audio && !a_prodwait()) {
+		while (audio && !eof && !a_prodwait()) {
 			int ret = ffs_adec(affs, a_buf[a_prod], ABUFSZ);
 			if (ret < 0)
-				goto eof;
+				eof = 1;
 			if (ret > 0) {
 				a_len[a_prod] = ret;
 				a_prod = (a_prod + 1) & (BUFS - 1);
 			}
 		}
-		if (video && (!audio || is_vsync())) {
+		if (video && (!audio || eof || is_vsync())) {
 			int ignore = jump && !(ffs_seq(vffs, 0) % (jump + 1));
 			char *buf;
 			int ret = ffs_vdec(vffs, ignore ? NULL : &buf);
 			if (ret < 0)
-				goto eof;
+				break;
 			if (ret > 0)
 				draw_frame((void *) buf, ret);
 			ffs_wait(vffs);
 		}
 	}
-eof:
 	cmd = FF_EXIT;
 	a_doreset(0);
 }
