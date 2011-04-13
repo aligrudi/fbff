@@ -100,7 +100,7 @@ void ffs_wait(struct ffs *ffs)
 	if (ts && ffs->ts) {
 		AVRational *r = &ffs->fc->streams[ffs->si]->time_base;
 		int vdelay = 1000 * r->num / r->den;
-		wait(ffs->ts, vdelay);
+		wait(ffs->ts, vdelay < 20 ? 20 : vdelay);
 	}
 	ffs->ts = ts_ms();
 }
