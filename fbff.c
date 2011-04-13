@@ -186,14 +186,16 @@ static void execkey(void)
 	}
 }
 
-#define MAXAVDIFF	120
-
 static int is_vsync(void)
 {
-	return !audio || ffs_seq(vffs, 1) + MAXAVDIFF < ffs_seq(affs, 1);
+	int cur = ffs_seq(affs, 0);
+	int all = ffs_seq(affs, 1);
+	int ratio = all ? (all - cur) * 1024 / all : 512;
+	int avdiff = BUFS * 4 * ratio / 1024;
+	return ffs_seq(vffs, 1) + avdiff < ffs_seq(affs, 1);
 }
 
-static void read_frames(void)
+static void mainloop(void)
 {
 	while (cmd != FF_EXIT) {
 		execkey();
@@ -211,7 +213,7 @@ static void read_frames(void)
 				a_prod = (a_prod + 1) & (BUFS - 1);
 			}
 		}
-		if (video && is_vsync()) {
+		if (video && (!audio || is_vsync())) {
 			int ignore = jump && !(ffs_seq(vffs, 0) % (jump + 1));
 			char *buf;
 			int ret = ffs_vdec(vffs, ignore ? NULL : &buf);
@@ -357,7 +359,7 @@ int main(int argc, char *argv[])
 	}
 	term_setup();
 	signal(SIGCONT, sigcont);
-	read_frames();
+	mainloop();
 	term_cleanup();
 
 	if (video) {

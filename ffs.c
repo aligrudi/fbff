@@ -15,8 +15,9 @@ struct ffs {
 	AVPacket pkt;
 	int si;			/* stream index */
 	long ts;		/* frame timestamp (ms) */
-	long seq;		/* frame number among packets of this stream */
-	long allseq;		/* frame number among all packets */
+	long seq;		/* current position in this stream */
+	long seq_all;		/* seen packets after ffs_seek() */
+	long seq_cur;		/* decoded packet after ffs_seek() */
 
 	/* decoding video frames */
 	struct SwsContext *swsc;
@@ -68,8 +69,9 @@ static AVPacket *ffs_pkt(struct ffs *ffs)
 {
 	AVPacket *pkt = &ffs->pkt;
 	while (av_read_frame(ffs->fc, pkt) >= 0) {
-		ffs->allseq++;
+		ffs->seq_all++;
 		if (pkt->stream_index == ffs->si) {
+			ffs->seq_cur++;
 			ffs->seq++;
 			return pkt;
 		}
@@ -115,13 +117,14 @@ void ffs_seek(struct ffs *ffs, long pos, int perframe)
 	av_seek_frame(ffs->fc, idx, seq * perframe,
 			perframe == 1 ? AVSEEK_FLAG_FRAME : 0);
 	ffs->seq = seq;
-	ffs->allseq = 0;
+	ffs->seq_all = 0;
+	ffs->seq_cur = 0;
 	ffs->ts = 0;
 }
 
 long ffs_seq(struct ffs *ffs, int all)
 {
-	return all ? ffs->allseq : ffs->seq;
+	return all ? ffs->seq_all : ffs->seq_cur;
 }
 
 void ffs_vinfo(struct ffs *ffs, int *w, int *h)
