@@ -352,7 +352,7 @@ int main(int argc, char *argv[])
 		fb_init();
 		ffs_vinfo(vffs, &w, &h);
 		if (!magnify)
-			magnify = fb_cols() / w / zoom;
+			magnify = MAX(1, fb_cols() / w / zoom);
 		if (fullscreen)
 			zoom = (float) fb_cols() / w / magnify;
 		ffs_vsetup(vffs, zoom, FFMPEG_PIXFMT);
