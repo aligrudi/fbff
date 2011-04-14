@@ -11,3 +11,6 @@ typedef unsigned int fbval_t;
  * + 8bit:  PIX_FMT_RGB8
  */
 #define FFMPEG_PIXFMT		PIX_FMT_RGB32
+
+/* audio packets to buffer (power of two); increase if sound is choppy */
+#define AUDIOBUFS		(1 << 3)

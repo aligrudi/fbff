@@ -70,11 +70,11 @@ static void draw_frame(fbval_t *img, int linelen)
 }
 
 #define ABUFSZ		(1 << 18)
-#define BUFS		(1 << 6)
+
 static int a_cons;
 static int a_prod;
-static char a_buf[BUFS][ABUFSZ];
-static int a_len[BUFS];
+static char a_buf[AUDIOBUFS][ABUFSZ];
+static int a_len[AUDIOBUFS];
 static int a_reset;
 
 static int a_conswait(void)
@@ -84,7 +84,7 @@ static int a_conswait(void)
 
 static int a_prodwait(void)
 {
-	return ((a_prod + 1) & (BUFS - 1)) == a_cons;
+	return ((a_prod + 1) & (AUDIOBUFS - 1)) == a_cons;
 }
 
 static void a_doreset(int pause)
@@ -191,7 +191,7 @@ static int is_vsync(void)
 	int cur = ffs_seq(affs, 0);
 	int all = ffs_seq(affs, 1);
 	int ratio = all ? (all - cur) * 1024 / all : 512;
-	int avdiff = BUFS * 4 * ratio / 1024;
+	int avdiff = AUDIOBUFS * 4 * ratio / 1024;
 	return ffs_seq(vffs, 1) + avdiff < ffs_seq(affs, 1);
 }
 
@@ -211,7 +211,7 @@ static void mainloop(void)
 				eof = 1;
 			if (ret > 0) {
 				a_len[a_prod] = ret;
-				a_prod = (a_prod + 1) & (BUFS - 1);
+				a_prod = (a_prod + 1) & (AUDIOBUFS - 1);
 			}
 		}
 		if (video && (!audio || eof || is_vsync())) {
@@ -264,7 +264,7 @@ static void *process_audio(void *dat)
 			continue;
 		}
 		write(afd, a_buf[a_cons], a_len[a_cons]);
-		a_cons = (a_cons + 1) & (BUFS - 1);
+		a_cons = (a_cons + 1) & (AUDIOBUFS - 1);
 	}
 ret:
 	oss_close();
