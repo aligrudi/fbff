@@ -25,16 +25,13 @@
 #define MIN(a, b)	((a) < (b) ? (a) : (b))
 #define MAX(a, b)	((a) > (b) ? (a) : (b))
 
-#define FF_PLAY			0
-#define FF_PAUSE		1
-#define FF_EXIT			2
-
 static int frame_jmp = 1;	/* the changes to pos_cur for each frame */
 static int afd;			/* oss fd */
 
 static int arg;
 static struct termios termios;
-static int cmd;
+static int paused;
+static int exited;
 
 static float zoom = 1;
 static int magnify = 0;
@@ -147,7 +144,7 @@ static void execkey(void)
 	while ((c = readkey()) != -1) {
 		switch (c) {
 		case 'q':
-			cmd = FF_EXIT;
+			exited = 1;
 			break;
 		case 'l':
 			ffjmp(ffarg() * JMP1, 1);
@@ -176,7 +173,7 @@ static void execkey(void)
 			break;
 		case ' ':
 		case 'p':
-			cmd = cmd ? FF_PLAY : FF_PAUSE;
+			paused = !paused;
 			break;
 		case 27:
 			arg = 0;
@@ -200,9 +197,9 @@ static int is_vsync(void)
 static void mainloop(void)
 {
 	int eof = 0;
-	while (cmd != FF_EXIT) {
+	while (!exited) {
 		execkey();
-		if (cmd == FF_PAUSE) {
+		if (paused) {
 			a_doreset(1);
 			waitkey();
 			continue;
@@ -227,8 +224,7 @@ static void mainloop(void)
 			ffs_wait(vffs);
 		}
 	}
-	cmd = FF_EXIT;
-	a_doreset(0);
+	exited = 1;
 }
 
 static void oss_init(void)
@@ -254,11 +250,10 @@ static void *process_audio(void *dat)
 {
 	oss_init();
 	while (1) {
-		while (!a_reset && (a_conswait() || cmd == FF_PAUSE)) {
-			if (cmd == FF_EXIT)
-				goto ret;
+		while (!a_reset && a_conswait() && !exited)
 			usleep(1000);
-		}
+		if (exited)
+			goto ret;
 		if (a_reset) {
 			if (a_reset == 1)
 				a_cons = a_prod;
