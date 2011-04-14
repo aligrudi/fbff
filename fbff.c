@@ -18,10 +18,12 @@
 #include <sys/poll.h>
 #include <sys/soundcard.h>
 #include <pthread.h>
-#include <libavcodec/avcodec.h>
 #include "config.h"
 #include "ffs.h"
 #include "draw.h"
+
+#define MIN(a, b)	((a) < (b) ? (a) : (b))
+#define MAX(a, b)	((a) > (b) ? (a) : (b))
 
 #define FF_PLAY			0
 #define FF_PAUSE		1
@@ -45,7 +47,7 @@ static int just = 0;
 static struct ffs *affs;		/* audio ffmpeg stream */
 static struct ffs *vffs;		/* video ffmpeg stream */
 
-static void draw_frame(fbval_t *img, int linelen)
+static void draw_frame(void *img, int linelen)
 {
 	int w, h;
 	fbval_t buf[1 << 14];
@@ -56,7 +58,7 @@ static void draw_frame(fbval_t *img, int linelen)
 	nc = MIN(w * zoom, fb_cols() / magnify);
 	cb = just ? fb_cols() - nc * magnify : 0;
 	for (r = 0; r < nr; r++) {
-		fbval_t *row = (void *) img + r * linelen;
+		fbval_t *row = img + r * linelen;
 		if (magnify == 1) {
 			fb_set(r, cb, row, nc);
 			continue;
@@ -349,13 +351,14 @@ int main(int argc, char *argv[])
 		pthread_create(&a_thread, NULL, process_audio, NULL);
 	if (video) {
 		int w, h;
-		fb_init();
+		if (fb_init())
+			return 1;
 		ffs_vinfo(vffs, &w, &h);
 		if (!magnify)
 			magnify = MAX(1, fb_cols() / w / zoom);
 		if (fullscreen)
 			zoom = (float) fb_cols() / w / magnify;
-		ffs_vsetup(vffs, zoom, FFMPEG_PIXFMT);
+		ffs_vsetup(vffs, zoom, fb_mode());
 	}
 	term_setup();
 	signal(SIGCONT, sigcont);

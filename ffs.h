@@ -14,6 +14,6 @@ void ffs_ainfo(struct ffs *ffs, int *rate, int *bps, int *ch);
 int ffs_adec(struct ffs *ffs, char *buf, int blen);
 
 /* video */
-void ffs_vsetup(struct ffs *ffs, float zoom, int pix_fmt);
+void ffs_vsetup(struct ffs *ffs, float zoom, int fbm);
 void ffs_vinfo(struct ffs *ffs, int *w, int *h);
 int ffs_vdec(struct ffs *ffs, char **buf);

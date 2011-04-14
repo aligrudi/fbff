@@ -182,11 +182,27 @@ int ffs_adec(struct ffs *ffs, char *buf, int blen)
 	return rdec;
 }
 
-void ffs_vsetup(struct ffs *ffs, float zoom, int pixfmt)
+static int fbm2pixfmt(int fbm)
+{
+	switch (fbm & 0x0fff) {
+	case 0x888:
+		return PIX_FMT_RGB32;
+	case 0x565:
+		return PIX_FMT_RGB565;
+	case 0x233:
+		return PIX_FMT_RGB8;
+	default:
+		fprintf(stderr, "ffs: unknown fb_mode()\n");
+		return PIX_FMT_RGB32;
+	}
+}
+
+void ffs_vsetup(struct ffs *ffs, float zoom, int fbm)
 {
 	int h = ffs->cc->height;
 	int w = ffs->cc->width;
 	int fmt = ffs->cc->pix_fmt;
+	int pixfmt = fbm2pixfmt(fbm);
 	uint8_t *buf = NULL;
 	int n;
 	ffs->swsc = sws_getContext(w, h, fmt, w * zoom, h * zoom,
