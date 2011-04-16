@@ -197,8 +197,10 @@ static int is_vsync(void)
 static void mainloop(void)
 {
 	int eof = 0;
-	while (!exited) {
+	while (1) {
 		execkey();
+		if (exited)
+			break;
 		if (paused) {
 			a_doreset(1);
 			waitkey();
