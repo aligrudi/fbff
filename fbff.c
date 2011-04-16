@@ -34,7 +34,7 @@ static int paused;
 static int exited;
 
 static float zoom = 1;
-static int magnify = 0;
+static int magnify = 1;
 static int jump = 0;
 static int fullscreen = 0;
 static int audio = 1;
@@ -351,8 +351,8 @@ int main(int argc, char *argv[])
 		if (fb_init())
 			return 1;
 		ffs_vinfo(vffs, &w, &h);
-		if (!magnify)
-			magnify = MAX(1, fb_cols() / w / zoom);
+		if (magnify != 1 && sizeof(fbval_t) != FBM_BPP(fb_mode()))
+			fprintf(stderr, "fbff: magnify != 1 and fbval_t doesn't match\n");
 		if (fullscreen)
 			zoom = (float) fb_cols() / w / magnify;
 		ffs_vsetup(vffs, zoom, fb_mode());
