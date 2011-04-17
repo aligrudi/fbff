@@ -44,6 +44,11 @@ static int just = 0;
 static struct ffs *affs;		/* audio ffmpeg stream */
 static struct ffs *vffs;		/* video ffmpeg stream */
 
+static void stroll(void)
+{
+	usleep(10000);
+}
+
 static void draw_frame(void *img, int linelen)
 {
 	int w, h;
@@ -90,7 +95,7 @@ static void a_doreset(int pause)
 {
 	a_reset = 1 + pause;
 	while (audio && a_reset)
-		usleep(1000);
+		stroll();
 }
 
 static int readkey(void)
@@ -185,13 +190,14 @@ static void execkey(void)
 	}
 }
 
+/* can more video packets be read */
 static int is_vsync(void)
 {
 	int cur = ffs_seq(affs, 0);
 	int all = ffs_seq(affs, 1);
-	int ratio = all ? (all - cur) * 1024 / all : 512;
-	int avdiff = AUDIOBUFS * 4 * ratio / 1024;
-	return ffs_seq(vffs, 1) + avdiff < ffs_seq(affs, 1);
+	int video = cur ? (all - cur) * AUDIOBUFS / cur : AUDIOBUFS;
+	/* video ffs should wait for audio ffs (ignoring buffered packets) */
+	return ffs_seq(vffs, 1) + AUDIOBUFS + video < ffs_seq(affs, 1);
 }
 
 static void mainloop(void)
@@ -224,6 +230,8 @@ static void mainloop(void)
 			if (ret > 0)
 				draw_frame((void *) buf, ret);
 			ffs_wait(vffs);
+		} else {
+			stroll();
 		}
 	}
 	exited = 1;
@@ -253,7 +261,7 @@ static void *process_audio(void *dat)
 	oss_init();
 	while (1) {
 		while (!a_reset && a_conswait() && !exited)
-			usleep(1000);
+			stroll();
 		if (exited)
 			goto ret;
 		if (a_reset) {
