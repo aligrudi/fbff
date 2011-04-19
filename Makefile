@@ -1,6 +1,8 @@
+FF_PATH = /opt
 CC = cc
-CFLAGS = -Wall -O2
-LDFLAGS = -lavutil -lavformat -lavcodec -lavutil -lswscale -lz -lm -lpthread
+CFLAGS = -I$(FF_PATH)/include -Wall -O2
+LDFLAGS = -L$(FF_PATH)/lib -lavutil -lavformat -lavcodec -lavutil \
+		-lswscale -lz -lm -lpthread
 
 all: fbff
 .c.o:
