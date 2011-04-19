@@ -250,7 +250,7 @@ static void *process_audio(void *dat)
 {
 	oss_init();
 	while (1) {
-		while (!a_reset && a_conswait() && !exited)
+		while (!a_reset && (a_conswait() || paused) && !exited)
 			stroll();
 		if (exited)
 			goto ret;
