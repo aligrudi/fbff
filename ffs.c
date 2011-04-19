@@ -122,9 +122,14 @@ void ffs_seek(struct ffs *ffs, long pos, int perframe)
 	ffs->ts = 0;
 }
 
-long ffs_seq(struct ffs *ffs, int all)
+/* can more video packets be read */
+int ffs_vsync(struct ffs *ffs, struct ffs *affs, int abufs)
 {
-	return all ? ffs->seq_all : ffs->seq_cur;
+	int cur = affs->seq_cur;
+	int all = affs->seq_all;
+	int video = cur ? (all - cur) * abufs / cur : abufs;
+	/* video ffs should wait for audio ffs (ignoring buffered packets) */
+	return ffs->seq_all + abufs + video < affs->seq_all;
 }
 
 void ffs_vinfo(struct ffs *ffs, int *w, int *h)
@@ -140,7 +145,7 @@ void ffs_ainfo(struct ffs *ffs, int *rate, int *bps, int *ch)
 	*bps = 16;
 }
 
-int ffs_vdec(struct ffs *ffs, char **buf)
+int ffs_vdec(struct ffs *ffs, void **buf)
 {
 	AVCodecContext *vcc = ffs->cc;
 	AVPacket *pkt = ffs_pkt(ffs);
@@ -158,7 +163,7 @@ int ffs_vdec(struct ffs *ffs, char **buf)
 	return 0;
 }
 
-int ffs_adec(struct ffs *ffs, char *buf, int blen)
+int ffs_adec(struct ffs *ffs, void *buf, int blen)
 {
 	int rdec = 0;
 	AVPacket tmppkt;

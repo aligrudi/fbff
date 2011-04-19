@@ -25,9 +25,6 @@
 #define MIN(a, b)	((a) < (b) ? (a) : (b))
 #define MAX(a, b)	((a) > (b) ? (a) : (b))
 
-static int frame_jmp = 1;	/* the changes to pos_cur for each frame */
-static int afd;			/* oss fd */
-
 static int arg;
 static struct termios termios;
 static int paused;
@@ -40,9 +37,12 @@ static int fullscreen = 0;
 static int audio = 1;
 static int video = 1;
 static int just = 0;
+static int frame_jmp = 1;	/* the changes to pos_cur for each frame */
 
-static struct ffs *affs;		/* audio ffmpeg stream */
-static struct ffs *vffs;		/* video ffmpeg stream */
+static struct ffs *affs;	/* audio ffmpeg stream */
+static struct ffs *vffs;	/* video ffmpeg stream */
+static int afd;			/* oss fd */
+static int vnum;		/* decoded video frame count */
 
 static void stroll(void)
 {
@@ -190,16 +190,6 @@ static void execkey(void)
 	}
 }
 
-/* can more video packets be read */
-static int is_vsync(void)
-{
-	int cur = ffs_seq(affs, 0);
-	int all = ffs_seq(affs, 1);
-	int video = cur ? (all - cur) * AUDIOBUFS / cur : AUDIOBUFS;
-	/* video ffs should wait for audio ffs (ignoring buffered packets) */
-	return ffs_seq(vffs, 1) + AUDIOBUFS + video < ffs_seq(affs, 1);
-}
-
 static void mainloop(void)
 {
 	int eof = 0;
@@ -221,9 +211,9 @@ static void mainloop(void)
 				a_prod = (a_prod + 1) & (AUDIOBUFS - 1);
 			}
 		}
-		if (video && (!audio || eof || is_vsync())) {
-			int ignore = jump && !(ffs_seq(vffs, 0) % (jump + 1));
-			char *buf;
+		if (video && (!audio || eof || ffs_vsync(vffs, affs, AUDIOBUFS))) {
+			int ignore = jump && (vnum++ % (jump + 1));
+			void *buf;
 			int ret = ffs_vdec(vffs, ignore ? NULL : &buf);
 			if (ret < 0)
 				break;
