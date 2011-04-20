@@ -193,7 +193,7 @@ static void execkey(void)
 static void mainloop(void)
 {
 	int eof = 0;
-	while (1) {
+	while (eof < audio + video) {
 		execkey();
 		if (exited)
 			break;
@@ -205,7 +205,7 @@ static void mainloop(void)
 		while (audio && !eof && !a_prodwait()) {
 			int ret = ffs_adec(affs, a_buf[a_prod], ABUFSZ);
 			if (ret < 0)
-				eof = 1;
+				eof++;
 			if (ret > 0) {
 				a_len[a_prod] = ret;
 				a_prod = (a_prod + 1) & (AUDIOBUFS - 1);
@@ -216,7 +216,7 @@ static void mainloop(void)
 			void *buf;
 			int ret = ffs_vdec(vffs, ignore ? NULL : &buf);
 			if (ret < 0)
-				break;
+				eof++;
 			if (ret > 0)
 				draw_frame((void *) buf, ret);
 			ffs_wait(vffs);
