@@ -28,18 +28,15 @@ struct ffs {
 struct ffs *ffs_alloc(char *path, int video)
 {
 	struct ffs *ffs;
-	int codec_type = video ? CODEC_TYPE_VIDEO : CODEC_TYPE_AUDIO;
-	int i;
+	int type = video ? AVMEDIA_TYPE_VIDEO : AVMEDIA_TYPE_AUDIO;
 	ffs = malloc(sizeof(*ffs));
 	memset(ffs, 0, sizeof(*ffs));
 	ffs->si = -1;
-	if (av_open_input_file(&ffs->fc, path, NULL, 0, NULL))
+	if (avformat_open_input(&ffs->fc, path, NULL, NULL))
 		goto failed;
 	if (av_find_stream_info(ffs->fc) < 0)
 		goto failed;
-	for (i = 0; i < ffs->fc->nb_streams; i++)
-		if (ffs->fc->streams[i]->codec->codec_type == codec_type)
-			ffs->si = i;
+	ffs->si = av_find_best_stream(ffs->fc, type, -1, -1, NULL, 0);
 	if (ffs->si == -1)
 		goto failed;
 	ffs->cc = ffs->fc->streams[ffs->si]->codec;
@@ -113,7 +110,7 @@ long ffs_pos(struct ffs *ffs, int diff)
 void ffs_seek(struct ffs *ffs, long pos, int perframe)
 {
 	long idx = pos >> 28;
-	long seq = pos & 0x0fffffff;
+	long seq = pos & 0x00ffffff;
 	av_seek_frame(ffs->fc, idx, seq * perframe,
 			perframe == 1 ? AVSEEK_FLAG_FRAME : 0);
 	ffs->seq = seq;
@@ -155,7 +152,7 @@ int ffs_vdec(struct ffs *ffs, void **buf)
 	avcodec_decode_video2(vcc, ffs->tmp, &fine, pkt);
 	av_free_packet(pkt);
 	if (fine && buf) {
-		sws_scale(ffs->swsc, ffs->tmp->data, ffs->tmp->linesize,
+		sws_scale(ffs->swsc, (void *) ffs->tmp->data, ffs->tmp->linesize,
 			  0, vcc->height, ffs->dst->data, ffs->dst->linesize);
 		*buf = (void *) ffs->dst->data[0];
 		return ffs->dst->linesize[0];
