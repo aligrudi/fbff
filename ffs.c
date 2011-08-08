@@ -98,12 +98,18 @@ static int wait(long ts, int vdelay)
 
 void ffs_wait(struct ffs *ffs)
 {
-	AVRational *r = &ffs->fc->streams[ffs->si]->time_base;
-	int vdelay = 1000 * r->num / r->den;
+	AVRational *r = &ffs->fc->streams[ffs->si]->r_frame_rate;
+	int vdelay = 1000 * r->den / r->num;
 	if (!wait(ffs->ts, MAX(vdelay, 20)))
 		ffs->ts += MAX(vdelay, 20);
 	else
 		ffs->ts = ts_ms();		/* out of sync */
+}
+
+/* audio/video frame offset difference */
+int ffs_avdiff(struct ffs *ffs, struct ffs *affs)
+{
+	return affs->seq_all - ffs->seq_all;
 }
 
 long ffs_pos(struct ffs *ffs, int diff)
@@ -121,16 +127,6 @@ void ffs_seek(struct ffs *ffs, long pos, int perframe)
 	ffs->seq_all = 0;
 	ffs->seq_cur = 0;
 	ffs->ts = 0;
-}
-
-/* can more video packets be read */
-int ffs_vsync(struct ffs *ffs, struct ffs *affs, int abufs)
-{
-	int cur = affs->seq_cur;
-	int all = affs->seq_all;
-	int video = cur ? (all - cur) * abufs / cur : abufs;
-	/* video ffs should wait for audio ffs (ignoring buffered packets) */
-	return ffs->seq_all - abufs - video - 12 < affs->seq_all;
 }
 
 void ffs_vinfo(struct ffs *ffs, int *w, int *h)

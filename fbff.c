@@ -44,6 +44,9 @@ static struct ffs *vffs;	/* video ffmpeg stream */
 static int afd;			/* oss fd */
 static int vnum;		/* decoded video frame count */
 
+static int sync_diff;		/* audio/video frame position diff */
+static int sync_cnt;		/* synchronize if nonzero */
+
 static void stroll(void)
 {
 	usleep(10000);
@@ -114,11 +117,11 @@ static void waitkey(void)
 	poll(ufds, 1, -1);
 }
 
-static int ffarg(void)
+static int ffarg(int def)
 {
 	int n = arg;
 	arg = 0;
-	return n ? n : 1;
+	return n ? n : def;
 }
 
 static void ffjmp(int n, int rel)
@@ -135,7 +138,8 @@ static void ffjmp(int n, int rel)
 static void printinfo(void)
 {
 	struct ffs *ffs = video ? vffs : affs;
-	printf("fbff:   %8lx\r", ffs_pos(ffs, 0));
+	printf("fbff:   %8lx \t (AV: %d)\r",
+		ffs_pos(ffs, 0), ffs_avdiff(vffs, affs));
 	fflush(stdout);
 }
 
@@ -152,22 +156,22 @@ static void execkey(void)
 			exited = 1;
 			break;
 		case 'l':
-			ffjmp(ffarg() * JMP1, 1);
+			ffjmp(ffarg(1) * JMP1, 1);
 			break;
 		case 'h':
-			ffjmp(-ffarg() * JMP1, 1);
+			ffjmp(-ffarg(1) * JMP1, 1);
 			break;
 		case 'j':
-			ffjmp(ffarg() * JMP2, 1);
+			ffjmp(ffarg(1) * JMP2, 1);
 			break;
 		case 'k':
-			ffjmp(-ffarg() * JMP2, 1);
+			ffjmp(-ffarg(1) * JMP2, 1);
 			break;
 		case 'J':
-			ffjmp(ffarg() * JMP3, 1);
+			ffjmp(ffarg(1) * JMP3, 1);
 			break;
 		case 'K':
-			ffjmp(-ffarg() * JMP3, 1);
+			ffjmp(-ffarg(1) * JMP3, 1);
 			break;
 		case '%':
 			if (arg)
@@ -179,6 +183,19 @@ static void execkey(void)
 		case ' ':
 		case 'p':
 			paused = !paused;
+			sync_cnt = 10;
+			break;
+		case '-':
+			sync_diff = -ffarg(0);
+			break;
+		case '+':
+			sync_diff = ffarg(0);
+			break;
+		case 'a':
+			sync_diff = ffs_avdiff(vffs, affs);
+			break;
+		case 's':
+			sync_cnt = ffarg(10);
 			break;
 		case 27:
 			arg = 0;
@@ -188,6 +205,17 @@ static void execkey(void)
 				arg = arg * 10 + c - '0';
 		}
 	}
+}
+
+/* return nonzero if one more video frame can be decoded */
+static int vsync(void)
+{
+	if (sync_cnt > 0) {
+		sync_cnt--;
+		return ffs_avdiff(vffs, affs) >= sync_diff;
+	}
+	ffs_wait(vffs);
+	return 1;
 }
 
 static void mainloop(void)
@@ -211,7 +239,7 @@ static void mainloop(void)
 				a_prod = (a_prod + 1) & (AUDIOBUFS - 1);
 			}
 		}
-		if (video && (!audio || eof || ffs_vsync(vffs, affs, AUDIOBUFS))) {
+		if (video && (!audio || eof || vsync())) {
 			int ignore = jump && (vnum++ % (jump + 1));
 			void *buf;
 			int ret = ffs_vdec(vffs, ignore ? NULL : &buf);
@@ -219,7 +247,6 @@ static void mainloop(void)
 				eof++;
 			if (ret > 0)
 				draw_frame((void *) buf, ret);
-			ffs_wait(vffs);
 		} else {
 			stroll();
 		}
