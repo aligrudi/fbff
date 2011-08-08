@@ -84,22 +84,26 @@ static long ts_ms(void)
 	return tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 
-static void wait(long ts, int vdelay)
+static int wait(long ts, int vdelay)
 {
 	int nts = ts_ms();
-	if (ts + vdelay > nts)
+	if (nts > ts && ts + vdelay > nts) {
 		usleep((ts + vdelay - nts) * 1000);
+		return 0;
+	}
+	return 1;
 }
+
+#define MAX(a, b)	((a) < (b) ? (b) : (a))
 
 void ffs_wait(struct ffs *ffs)
 {
-	long ts = ts_ms();
-	if (ts && ffs->ts) {
-		AVRational *r = &ffs->fc->streams[ffs->si]->time_base;
-		int vdelay = 1000 * r->num / r->den;
-		wait(ffs->ts, vdelay < 20 ? 20 : vdelay);
-	}
-	ffs->ts = ts_ms();
+	AVRational *r = &ffs->fc->streams[ffs->si]->time_base;
+	int vdelay = 1000 * r->num / r->den;
+	if (!wait(ffs->ts, MAX(vdelay, 20)))
+		ffs->ts += MAX(vdelay, 20);
+	else
+		ffs->ts = ts_ms();		/* out of sync */
 }
 
 long ffs_pos(struct ffs *ffs, int diff)
@@ -126,7 +130,7 @@ int ffs_vsync(struct ffs *ffs, struct ffs *affs, int abufs)
 	int all = affs->seq_all;
 	int video = cur ? (all - cur) * abufs / cur : abufs;
 	/* video ffs should wait for audio ffs (ignoring buffered packets) */
-	return ffs->seq_all + abufs + video < affs->seq_all;
+	return ffs->seq_all - abufs - video - 12 < affs->seq_all;
 }
 
 void ffs_vinfo(struct ffs *ffs, int *w, int *h)
