@@ -1,0 +1,40 @@
+FBFF
+====
+
+fbff is a framebuffer/OSS media player using ffmpeg or libmpeg3.
+The following options can be specified when starting fbff:
+
+==============	================================================
+OPTION		DESCRIPTION
+==============	================================================
+-m x		magnify the screen by repeating pixels
+-z x		zoom the screen using ffmpeg
+-j x		jump every x video frames; for slow machines
+-f		start full screen
+-v		video only playback
+-a		audio only playback
+-t		use time based seeking; only if the default does't work
+-R		adjust the video to the right of the screen
+==============	================================================
+
+The following table describes fbff keybinding.  Most of these
+commands accept a numerical prefix.  The variable avdiff is
+used to synchronize audio/video streams.  The synchronization
+is done after the pause command or the 's' key.  '-', '+', and
+'a' keys can be used to change the value of avdiff as explained
+below.
+
+==============	================================================
+KEY		ACTION
+==============	================================================
+p/' '		(space) pause
+q		quit
+i		print info
+l/j/J		short/medium/long jump forward
+h/k/K		short/medium/long jump backward
+^[		(escape) clear numerical prefix
+s		synchronize audio/video with A-V equal to avdiff
+-		set avdiff to -arg
++		set avdiff to +arg
+a		set avdiff to current playback A-V diff
+==============	================================================
