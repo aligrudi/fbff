@@ -344,7 +344,7 @@ static void read_args(int argc, char *argv[])
 		if (!strcmp(argv[i], "-v"))
 			audio = 0;
 		if (!strcmp(argv[i], "-t"))
-			frame_jmp = 1024 / 32;
+			frame_jmp = 1024;
 		if (!strcmp(argv[i], "-h"))
 			printf(usage);
 		if (!strcmp(argv[i], "-R"))
