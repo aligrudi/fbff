@@ -45,7 +45,8 @@ static int afd;			/* oss fd */
 static int vnum;		/* decoded video frame count */
 
 static int sync_diff;		/* audio/video frame position diff */
-static int sync_cnt;		/* synchronize if nonzero */
+static int sync_cnt = 16;	/* synchronization steps */
+static int sync_cur;		/* synchronization steps left */
 
 static void stroll(void)
 {
@@ -183,7 +184,7 @@ static void execkey(void)
 		case ' ':
 		case 'p':
 			paused = !paused;
-			sync_cnt = 10;
+			sync_cur = sync_cnt;
 			break;
 		case '-':
 			sync_diff = -ffarg(0);
@@ -194,8 +195,11 @@ static void execkey(void)
 		case 'a':
 			sync_diff = ffs_avdiff(vffs, affs);
 			break;
+		case 'c':
+			sync_cnt = ffarg(0);
+			break;
 		case 's':
-			sync_cnt = ffarg(10);
+			sync_cur = ffarg(sync_cnt);
 			break;
 		case 27:
 			arg = 0;
@@ -210,8 +214,8 @@ static void execkey(void)
 /* return nonzero if one more video frame can be decoded */
 static int vsync(void)
 {
-	if (sync_cnt > 0) {
-		sync_cnt--;
+	if (sync_cur > 0) {
+		sync_cur--;
 		return ffs_avdiff(vffs, affs) >= sync_diff;
 	}
 	ffs_wait(vffs);
@@ -318,12 +322,13 @@ static void sigcont(int sig)
 
 static char *usage = "usage: fbff [options] file\n"
 	"\noptions:\n"
-	"  -m x     magnify the screen by repeating pixels\n"
 	"  -z x     zoom the screen using ffmpeg\n"
+	"  -m x     magnify the screen by repeating pixels\n"
 	"  -j x     jump every x video frames; for slow machines\n"
 	"  -f       start full screen\n"
 	"  -v       video only playback\n"
 	"  -a       audio only playback\n"
+	"  -s       always synchronize; useful for files with bad video framerate\n"
 	"  -t       use time based seeking; only if the default does't work\n"
 	"  -R       adjust the video to the right of the screen\n\n";
 
@@ -341,6 +346,8 @@ static void read_args(int argc, char *argv[])
 			fullscreen = 1;
 		if (!strcmp(argv[i], "-a"))
 			video = 0;
+		if (!strcmp(argv[i], "-s"))
+			sync_cnt = sync_cur = (1 << 30);
 		if (!strcmp(argv[i], "-v"))
 			audio = 0;
 		if (!strcmp(argv[i], "-t"))
