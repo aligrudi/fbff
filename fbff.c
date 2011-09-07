@@ -140,7 +140,7 @@ static void printinfo(void)
 {
 	struct ffs *ffs = video ? vffs : affs;
 	printf("fbff:   %8lx \t (AV: %d)\r",
-		ffs_pos(ffs, 0), ffs_avdiff(vffs, affs));
+		ffs_pos(ffs, 0), video && audio ? ffs_avdiff(vffs, affs) : 0);
 	fflush(stdout);
 }
 
