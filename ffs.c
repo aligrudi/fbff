@@ -37,7 +37,7 @@ struct ffs *ffs_alloc(char *path, int video)
 	if (av_find_stream_info(ffs->fc) < 0)
 		goto failed;
 	ffs->si = av_find_best_stream(ffs->fc, type, -1, -1, NULL, 0);
-	if (ffs->si == -1)
+	if (ffs->si < 0)
 		goto failed;
 	ffs->cc = ffs->fc->streams[ffs->si]->codec;
 	avcodec_open(ffs->cc, avcodec_find_decoder(ffs->cc->codec_id));
