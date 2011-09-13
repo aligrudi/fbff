@@ -11,8 +11,8 @@ OPTION		DESCRIPTION
 -m x		magnify the screen by repeating pixels
 -j x		jump every x video frames; for slow machines
 -f		start full screen
--v		video only playback
--a		audio only playback
+-v x		select video stream; '-' disables video
+-a x		select audio stream; '-' disables audio
 -t		use time based seeking; only if the default does't work
 -s		don't rely on video framerate; always synchronize
 -R		adjust the video to the right of the screen

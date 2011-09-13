@@ -25,10 +25,11 @@ struct ffs {
 	AVFrame *tmp;
 };
 
-struct ffs *ffs_alloc(char *path, int video)
+struct ffs *ffs_alloc(char *path, int flags)
 {
 	struct ffs *ffs;
-	int type = video ? AVMEDIA_TYPE_VIDEO : AVMEDIA_TYPE_AUDIO;
+	int type = flags & FFS_VIDEO ? AVMEDIA_TYPE_VIDEO : AVMEDIA_TYPE_AUDIO;
+	int idx = (flags & FFS_STRIDX) - 1;
 	ffs = malloc(sizeof(*ffs));
 	memset(ffs, 0, sizeof(*ffs));
 	ffs->si = -1;
@@ -36,7 +37,7 @@ struct ffs *ffs_alloc(char *path, int video)
 		goto failed;
 	if (av_find_stream_info(ffs->fc) < 0)
 		goto failed;
-	ffs->si = av_find_best_stream(ffs->fc, type, -1, -1, NULL, 0);
+	ffs->si = av_find_best_stream(ffs->fc, type, idx, -1, NULL, 0);
 	if (ffs->si < 0)
 		goto failed;
 	ffs->cc = ffs->fc->streams[ffs->si]->codec;

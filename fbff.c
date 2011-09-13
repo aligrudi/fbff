@@ -34,8 +34,8 @@ static float zoom = 1;
 static int magnify = 1;
 static int jump = 0;
 static int fullscreen = 0;
-static int audio = 1;
-static int video = 1;
+static int video = 1;		/* video stream; 0=none, 1=auto, >2=idx */
+static int audio = 1;		/* audio stream; 0=none, 1=auto, >2=idx */
 static int just = 0;
 static int frame_jmp = 1;	/* the changes to pos_cur for each frame */
 
@@ -326,8 +326,8 @@ static char *usage = "usage: fbff [options] file\n"
 	"  -m x     magnify the screen by repeating pixels\n"
 	"  -j x     jump every x video frames; for slow machines\n"
 	"  -f       start full screen\n"
-	"  -v       video only playback\n"
-	"  -a       audio only playback\n"
+	"  -v x     select video stream; '-' disables video\n"
+	"  -a x     select audio stream; '-' disables audio\n"
 	"  -s       always synchronize; useful for files with bad video framerate\n"
 	"  -t       use time based seeking; only if the default does't work\n"
 	"  -R       adjust the video to the right of the screen\n\n";
@@ -344,12 +344,12 @@ static void read_args(int argc, char *argv[])
 			jump = atoi(argv[++i]);
 		if (!strcmp(argv[i], "-f"))
 			fullscreen = 1;
-		if (!strcmp(argv[i], "-a"))
-			video = 0;
 		if (!strcmp(argv[i], "-s"))
 			sync_cnt = sync_cur = (1 << 30);
 		if (!strcmp(argv[i], "-v"))
-			audio = 0;
+			video = argv[++i][0] == '-' ? 0 : atoi(argv[i]) + 2;
+		if (!strcmp(argv[i], "-a"))
+			audio = argv[++i][0] == '-' ? 0 : atoi(argv[i]) + 2;
 		if (!strcmp(argv[i], "-t"))
 			frame_jmp = 1024;
 		if (!strcmp(argv[i], "-h"))
@@ -370,9 +370,9 @@ int main(int argc, char *argv[])
 	}
 	read_args(argc, argv);
 	ffs_globinit();
-	if (video && !(vffs = ffs_alloc(path, 1)))
+	if (video && !(vffs = ffs_alloc(path, FFS_VIDEO | video - 1)))
 		video = 0;
-	if (audio && !(affs = ffs_alloc(path, 0)))
+	if (audio && !(affs = ffs_alloc(path, FFS_AUDIO | audio - 1)))
 		audio = 0;
 	if (!video && !audio)
 		return 1;

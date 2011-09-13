@@ -1,7 +1,11 @@
+#define FFS_AUDIO	0x1000
+#define FFS_VIDEO	0x2000
+#define FFS_STRIDX	0x0fff
+
 void ffs_globinit(void);
 
 /* ffmpeg stream */
-struct ffs *ffs_alloc(char *path, int video);
+struct ffs *ffs_alloc(char *path, int flags);
 void ffs_free(struct ffs *ffs);
 
 long ffs_pos(struct ffs *ffs, int diff);
