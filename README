@@ -18,12 +18,11 @@ OPTION		DESCRIPTION
 -R		adjust the video to the right of the screen
 ==============	================================================
 
-The following table describes fbff keybinding.  Most of these
-commands accept a numerical prefix.  The variable avdiff is
-used to synchronize audio/video streams.  The synchronization
-is done after the pause command or the 's' key.  '-', '+', and
-'a' keys can be used to change the value of avdiff as explained
-below.
+The following table describes fbff keybinding.  Most of these commands
+accept a numerical prefix.  The variable avdiff is used to synchronize
+audioa and video streams.  The synchronization is done after the 's'
+key or the pause and seek commands.  '-', '+', and 'a' keys can be used
+to change the value of avdiff as explained below.
 
 ==============	================================================
 KEY		ACTION

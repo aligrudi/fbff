@@ -45,7 +45,7 @@ static int afd;			/* oss fd */
 static int vnum;		/* decoded video frame count */
 
 static int sync_diff;		/* audio/video frame position diff */
-static int sync_cnt = 16;	/* synchronization steps */
+static int sync_cnt = 32;	/* synchronization steps */
 static int sync_cur;		/* synchronization steps left */
 
 static void stroll(void)
@@ -130,6 +130,7 @@ static void ffjmp(int n, int rel)
 	struct ffs *ffs = video ? vffs : affs;
 	long pos = ffs_pos(ffs, n);
 	a_doreset(0);
+	sync_cur = sync_cnt;
 	if (audio)
 		ffs_seek(affs, pos, frame_jmp);
 	if (video)
