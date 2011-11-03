@@ -87,7 +87,7 @@ static long ts_ms(void)
 
 static int wait(long ts, int vdelay)
 {
-	int nts = ts_ms();
+	long nts = ts_ms();
 	if (nts > ts && ts + vdelay > nts) {
 		usleep((ts + vdelay - nts) * 1000);
 		return 0;
