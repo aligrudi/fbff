@@ -1,7 +1,7 @@
 /*
  * fbff - a small ffmpeg-based framebuffer/oss media player
  *
- * Copyright (C) 2009-2011 Ali Gholami Rudi
+ * Copyright (C) 2009-2012 Ali Gholami Rudi
  *
  * This program is released under GNU GPL version 2.
  */
@@ -36,7 +36,8 @@ static int jump = 0;
 static int fullscreen = 0;
 static int video = 1;		/* video stream; 0=none, 1=auto, >2=idx */
 static int audio = 1;		/* audio stream; 0=none, 1=auto, >2=idx */
-static int just = 0;
+static int rjust = 0;		/* justify video to the right */
+static int bjust = 0;		/* justify video to the bottom */
 static int frame_jmp = 1;	/* the changes to pos_cur for each frame */
 
 static struct ffs *affs;	/* audio ffmpeg stream */
@@ -57,23 +58,24 @@ static void draw_frame(void *img, int linelen)
 {
 	int w, h;
 	fbval_t buf[1 << 14];
-	int nr, nc, cb;
+	int nr, nc, cb, rb;
 	int i, r, c;
 	ffs_vinfo(vffs, &w, &h);
 	nr = MIN(h * zoom, fb_rows() / magnify);
 	nc = MIN(w * zoom, fb_cols() / magnify);
-	cb = just ? fb_cols() - nc * magnify : 0;
+	cb = rjust ? fb_cols() - nc * magnify : 0;
+	rb = bjust ? fb_rows() - nr * magnify : 0;
 	for (r = 0; r < nr; r++) {
 		fbval_t *row = img + r * linelen;
 		if (magnify == 1) {
-			fb_set(r, cb, row, nc);
+			fb_set(rb + r, cb, row, nc);
 			continue;
 		}
 		for (c = 0; c < nc; c++)
 			for (i = 0; i < magnify; i++)
 				buf[c * magnify + i] = row[c];
 		for (i = 0; i < magnify; i++)
-			fb_set(r * magnify + i, cb, buf, nc * magnify);
+			fb_set((rb + r) * magnify + i, cb, buf, nc * magnify);
 	}
 }
 
@@ -331,7 +333,8 @@ static char *usage = "usage: fbff [options] file\n"
 	"  -a x     select audio stream; '-' disables audio\n"
 	"  -s       always synchronize; useful for files with bad video framerate\n"
 	"  -t       use time based seeking; only if the default does't work\n"
-	"  -R       adjust the video to the right of the screen\n\n";
+	"  -r       adjust the video to the right of the screen\n"
+	"  -b       adjust the video to the bottom of the screen\n\n";
 
 static void read_args(int argc, char *argv[])
 {
@@ -355,8 +358,10 @@ static void read_args(int argc, char *argv[])
 			frame_jmp = 1024;
 		if (!strcmp(argv[i], "-h"))
 			printf(usage);
-		if (!strcmp(argv[i], "-R"))
-			just = 1;
+		if (!strcmp(argv[i], "-r"))
+			rjust = 1;
+		if (!strcmp(argv[i], "-b"))
+			bjust = 1;
 		i++;
 	}
 }
@@ -371,9 +376,9 @@ int main(int argc, char *argv[])
 	}
 	read_args(argc, argv);
 	ffs_globinit();
-	if (video && !(vffs = ffs_alloc(path, FFS_VIDEO | video - 1)))
+	if (video && !(vffs = ffs_alloc(path, FFS_VIDEO | (video - 1))))
 		video = 0;
-	if (audio && !(affs = ffs_alloc(path, FFS_AUDIO | audio - 1)))
+	if (audio && !(affs = ffs_alloc(path, FFS_AUDIO | (audio - 1))))
 		audio = 0;
 	if (!video && !audio)
 		return 1;
