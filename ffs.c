@@ -221,4 +221,5 @@ void ffs_vsetup(struct ffs *ffs, float zoom, int fbm)
 void ffs_globinit(void)
 {
 	av_register_all();
+	avformat_network_init();
 }
