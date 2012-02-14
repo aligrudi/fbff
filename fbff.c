@@ -391,8 +391,11 @@ int main(int argc, char *argv[])
 		ffs_vinfo(vffs, &w, &h);
 		if (magnify != 1 && sizeof(fbval_t) != FBM_BPP(fb_mode()))
 			fprintf(stderr, "fbff: magnify != 1 and fbval_t doesn't match\n");
-		if (fullscreen)
-			zoom = (float) fb_cols() / w / magnify;
+		if (fullscreen) {
+			float hz = (float) fb_rows() / h / magnify;
+			float wz = (float) fb_cols() / w / magnify;
+			zoom = hz < wz ? hz : wz;
+		}
 		ffs_vsetup(vffs, zoom, fb_mode());
 	}
 	term_setup();
