@@ -46,6 +46,8 @@ static int afd;			/* oss fd */
 static int vnum;		/* decoded video frame count */
 
 static int sync_diff;		/* audio/video frame position diff */
+static int sync_period;		/* sync after every this many number of frames */
+static int sync_since;		/* frames since th last sync */
 static int sync_cnt = 32;	/* synchronization steps */
 static int sync_cur;		/* synchronization steps left */
 
@@ -217,6 +219,10 @@ static void execkey(void)
 /* return nonzero if one more video frame can be decoded */
 static int vsync(void)
 {
+	if (sync_period && sync_since++ >= sync_period) {
+		sync_cur = sync_cnt;
+		sync_since = 0;
+	}
 	if (sync_cur > 0) {
 		sync_cur--;
 		return ffs_avdiff(vffs, affs) >= sync_diff;
@@ -348,8 +354,8 @@ static void read_args(int argc, char *argv[])
 			jump = atoi(argv[++i]);
 		if (!strcmp(argv[i], "-f"))
 			fullscreen = 1;
-		if (!strcmp(argv[i], "-s"))
-			sync_cnt = sync_cur = (1 << 30);
+		if (!strncmp(argv[i], "-s", 2))
+			sync_period = isdigit(argv[i][2]) ? atoi(argv[i] + 2) : 1;
 		if (!strcmp(argv[i], "-v"))
 			video = argv[++i][0] == '-' ? 0 : atoi(argv[i]) + 2;
 		if (!strcmp(argv[i], "-a"))
