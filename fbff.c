@@ -346,27 +346,34 @@ static void read_args(int argc, char *argv[])
 {
 	int i = 1;
 	while (i < argc) {
-		if (!strcmp(argv[i], "-m"))
-			magnify = atoi(argv[++i]);
-		if (!strcmp(argv[i], "-z"))
-			zoom = atof(argv[++i]);
-		if (!strcmp(argv[i], "-j"))
-			jump = atoi(argv[++i]);
-		if (!strcmp(argv[i], "-f"))
+		char *c = argv[i];
+		if (c[0] != '-')
+			break;
+		if (c[1] == 'm')
+			magnify = c[2] ? atoi(c + 2) : atoi(argv[++i]);
+		if (c[1] == 'z')
+			zoom = c[2] ? atof(c + 2) : atof(argv[++i]);
+		if (c[1] == 'j')
+			jump = c[2] ? atoi(c + 2) : atoi(argv[++i]);
+		if (c[1] == 'f')
 			fullscreen = 1;
-		if (!strncmp(argv[i], "-s", 2))
-			sync_period = isdigit(argv[i][2]) ? atoi(argv[i] + 2) : 1;
-		if (!strcmp(argv[i], "-v"))
-			video = argv[++i][0] == '-' ? 0 : atoi(argv[i]) + 2;
-		if (!strcmp(argv[i], "-a"))
-			audio = argv[++i][0] == '-' ? 0 : atoi(argv[i]) + 2;
-		if (!strcmp(argv[i], "-t"))
+		if (c[1] == 's')
+			sync_period = c[2] ? atoi(c + 2) : 1;
+		if (c[1] == 'v') {
+			char *arg = c[2] ? c + 2 : argv[++i];
+			video = arg[0] == '-' ? 0 : atoi(arg) + 2;
+		}
+		if (c[1] == 'a') {
+			char *arg = c[2] ? c + 2 : argv[++i];
+			audio = arg[0] == '-' ? 0 : atoi(arg) + 2;
+		}
+		if (c[1] == 't')
 			frame_jmp = 1024;
-		if (!strcmp(argv[i], "-h"))
+		if (c[1] == 'h')
 			printf(usage);
-		if (!strcmp(argv[i], "-r"))
+		if (c[1] == 'r')
 			rjust = 1;
-		if (!strcmp(argv[i], "-b"))
+		if (c[1] == 'b')
 			bjust = 1;
 		i++;
 	}
