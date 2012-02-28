@@ -50,6 +50,7 @@ static int sync_period;		/* sync after every this many number of frames */
 static int sync_since;		/* frames since th last sync */
 static int sync_cnt = 32;	/* synchronization steps */
 static int sync_cur;		/* synchronization steps left */
+static int sync_first;		/* first frame to record sync_diff */
 
 static void stroll(void)
 {
@@ -223,6 +224,13 @@ static int vsync(void)
 		sync_cur = sync_cnt;
 		sync_since = 0;
 	}
+	if (sync_first) {
+		sync_cur = 0;
+		if (sync_first < vnum) {
+			sync_first = 0;
+			sync_diff = ffs_avdiff(vffs, affs);
+		}
+	}
 	if (sync_cur > 0) {
 		sync_cur--;
 		return ffs_avdiff(vffs, affs) >= sync_diff;
@@ -253,9 +261,10 @@ static void mainloop(void)
 			}
 		}
 		if (video && (!audio || eof || vsync())) {
-			int ignore = jump && (vnum++ % (jump + 1));
+			int ignore = jump && (vnum % (jump + 1));
 			void *buf;
 			int ret = ffs_vdec(vffs, ignore ? NULL : &buf);
+			vnum++;
 			if (ret < 0)
 				eof++;
 			if (ret > 0)
@@ -338,6 +347,7 @@ static char *usage = "usage: fbff [options] file\n"
 	"  -v x     select video stream; '-' disables video\n"
 	"  -a x     select audio stream; '-' disables audio\n"
 	"  -s       always synchronize; useful for files with bad video framerate\n"
+	"  -u       record avdiff after a few frames\n"
 	"  -t       use time based seeking; only if the default does't work\n"
 	"  -r       adjust the video to the right of the screen\n"
 	"  -b       adjust the video to the bottom of the screen\n\n";
@@ -359,14 +369,6 @@ static void read_args(int argc, char *argv[])
 			fullscreen = 1;
 		if (c[1] == 's')
 			sync_period = c[2] ? atoi(c + 2) : 1;
-		if (c[1] == 'v') {
-			char *arg = c[2] ? c + 2 : argv[++i];
-			video = arg[0] == '-' ? 0 : atoi(arg) + 2;
-		}
-		if (c[1] == 'a') {
-			char *arg = c[2] ? c + 2 : argv[++i];
-			audio = arg[0] == '-' ? 0 : atoi(arg) + 2;
-		}
 		if (c[1] == 't')
 			frame_jmp = 1024;
 		if (c[1] == 'h')
@@ -375,6 +377,16 @@ static void read_args(int argc, char *argv[])
 			rjust = 1;
 		if (c[1] == 'b')
 			bjust = 1;
+		if (c[1] == 'u')
+			sync_first = 32;
+		if (c[1] == 'v') {
+			char *arg = c[2] ? c + 2 : argv[++i];
+			video = arg[0] == '-' ? 0 : atoi(arg) + 2;
+		}
+		if (c[1] == 'a') {
+			char *arg = c[2] ? c + 2 : argv[++i];
+			audio = arg[0] == '-' ? 0 : atoi(arg) + 2;
+		}
 		i++;
 	}
 }
