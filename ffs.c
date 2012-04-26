@@ -30,18 +30,21 @@ struct ffs *ffs_alloc(char *path, int flags)
 	struct ffs *ffs;
 	int type = flags & FFS_VIDEO ? AVMEDIA_TYPE_VIDEO : AVMEDIA_TYPE_AUDIO;
 	int idx = (flags & FFS_STRIDX) - 1;
+	AVDictionary *opt = NULL;
 	ffs = malloc(sizeof(*ffs));
 	memset(ffs, 0, sizeof(*ffs));
 	ffs->si = -1;
 	if (avformat_open_input(&ffs->fc, path, NULL, NULL))
 		goto failed;
-	if (av_find_stream_info(ffs->fc) < 0)
+	if (avformat_find_stream_info(ffs->fc, NULL) < 0)
 		goto failed;
 	ffs->si = av_find_best_stream(ffs->fc, type, idx, -1, NULL, 0);
 	if (ffs->si < 0)
 		goto failed;
 	ffs->cc = ffs->fc->streams[ffs->si]->codec;
-	avcodec_open(ffs->cc, avcodec_find_decoder(ffs->cc->codec_id));
+	if (avcodec_open2(ffs->cc, avcodec_find_decoder(ffs->cc->codec_id), &opt))
+		goto failed;
+	ffs->dst = avcodec_alloc_frame();
 	return ffs;
 failed:
 	ffs_free(ffs);
@@ -59,7 +62,7 @@ void ffs_free(struct ffs *ffs)
 	if (ffs->cc)
 		avcodec_close(ffs->cc);
 	if (ffs->fc)
-		av_close_input_file(ffs->fc);
+		avformat_close_input(&ffs->fc);
 	free(ffs);
 }
 
@@ -163,6 +166,7 @@ int ffs_vdec(struct ffs *ffs, void **buf)
 
 int ffs_adec(struct ffs *ffs, void *buf, int blen)
 {
+	int len, got;
 	int rdec = 0;
 	AVPacket tmppkt = {0};
 	AVPacket *pkt = ffs_pkt(ffs);
@@ -171,17 +175,15 @@ int ffs_adec(struct ffs *ffs, void *buf, int blen)
 	tmppkt.size = pkt->size;
 	tmppkt.data = pkt->data;
 	while (tmppkt.size > 0) {
-		int size = blen - rdec;
-		int len = avcodec_decode_audio3(ffs->cc, (int16_t *) (buf + rdec),
-						&size, &tmppkt);
+		len = avcodec_decode_audio4(ffs->cc, ffs->dst, &got, &tmppkt);
 		if (len < 0)
 			break;
 		tmppkt.size -= len;
 		tmppkt.data += len;
-		if (size > 0)
-			rdec += size;
 	}
 	av_free_packet(pkt);
+	rdec = ffs->dst->linesize[0];
+	memcpy(buf, ffs->dst->data[0], rdec);
 	return rdec;
 }
 
@@ -211,7 +213,6 @@ void ffs_vsetup(struct ffs *ffs, float zoom, int fbm)
 	ffs->swsc = sws_getContext(w, h, fmt, w * zoom, h * zoom,
 			pixfmt, SWS_FAST_BILINEAR | SWS_CPU_CAPS_MMX2,
 			NULL, NULL, NULL);
-	ffs->dst = avcodec_alloc_frame();
 	ffs->tmp = avcodec_alloc_frame();
 	n = avpicture_get_size(pixfmt, w * zoom, h * zoom);
 	buf = av_malloc(n * sizeof(uint8_t));
