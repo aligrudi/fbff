@@ -164,7 +164,7 @@ int ffs_vdec(struct ffs *ffs, void **buf)
 int ffs_adec(struct ffs *ffs, void *buf, int blen)
 {
 	int rdec = 0;
-	AVPacket tmppkt;
+	AVPacket tmppkt = {0};
 	AVPacket *pkt = ffs_pkt(ffs);
 	if (!pkt)
 		return -1;
