@@ -166,7 +166,6 @@ int ffs_vdec(struct ffs *ffs, void **buf)
 
 int ffs_adec(struct ffs *ffs, void *buf, int blen)
 {
-	int len, got;
 	int rdec = 0;
 	AVPacket tmppkt = {0};
 	AVPacket *pkt = ffs_pkt(ffs);
@@ -175,15 +174,17 @@ int ffs_adec(struct ffs *ffs, void *buf, int blen)
 	tmppkt.size = pkt->size;
 	tmppkt.data = pkt->data;
 	while (tmppkt.size > 0) {
-		len = avcodec_decode_audio4(ffs->cc, ffs->dst, &got, &tmppkt);
+		int size = blen - rdec;
+		int len = avcodec_decode_audio3(ffs->cc, (int16_t *) (buf + rdec),
+						&size, &tmppkt);
 		if (len < 0)
 			break;
 		tmppkt.size -= len;
 		tmppkt.data += len;
+		if (size > 0)
+			rdec += size;
 	}
 	av_free_packet(pkt);
-	rdec = ffs->dst->linesize[0];
-	memcpy(buf, ffs->dst->data[0], rdec);
 	return rdec;
 }
 
