@@ -14,10 +14,11 @@ void ffs_wait(struct ffs *ffs);
 int ffs_avdiff(struct ffs *ffs, struct ffs *affs);
 
 /* audio */
+void ffs_aconf(struct ffs *ffs);
 void ffs_ainfo(struct ffs *ffs, int *rate, int *bps, int *ch);
 int ffs_adec(struct ffs *ffs, void *buf, int blen);
 
 /* video */
-void ffs_vsetup(struct ffs *ffs, float zoom, int fbm);
+void ffs_vconf(struct ffs *ffs, float zoom, int fbm);
 void ffs_vinfo(struct ffs *ffs, int *w, int *h);
 int ffs_vdec(struct ffs *ffs, void **buf);

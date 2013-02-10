@@ -1,9 +1,9 @@
 /*
  * fbff - a small ffmpeg-based framebuffer/oss media player
  *
- * Copyright (C) 2009-2012 Ali Gholami Rudi
+ * Copyright (C) 2009-2013 Ali Gholami Rudi
  *
- * This program is released under GNU GPL version 2.
+ * This program is released under the modified BSD license.
  */
 #include <fcntl.h>
 #include <pty.h>
@@ -297,7 +297,6 @@ static void oss_close(void)
 
 static void *process_audio(void *dat)
 {
-	oss_init();
 	while (1) {
 		while (!a_reset && (a_conswait() || paused) && !exited)
 			stroll();
@@ -407,8 +406,11 @@ int main(int argc, char *argv[])
 		audio = 0;
 	if (!video && !audio)
 		return 1;
-	if (audio)
+	if (audio) {
+		ffs_aconf(affs);
+		oss_init();
 		pthread_create(&a_thread, NULL, process_audio, NULL);
+	}
 	if (video) {
 		int w, h;
 		if (fb_init())
@@ -421,7 +423,7 @@ int main(int argc, char *argv[])
 			float wz = (float) fb_cols() / w / magnify;
 			zoom = hz < wz ? hz : wz;
 		}
-		ffs_vsetup(vffs, zoom, fb_mode());
+		ffs_vconf(vffs, zoom, fb_mode());
 	}
 	term_setup();
 	signal(SIGCONT, sigcont);
