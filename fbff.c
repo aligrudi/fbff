@@ -82,6 +82,26 @@ static void draw_frame(void *img, int linelen)
 	}
 }
 
+static int oss_open(void)
+{
+	int rate, ch, bps;
+	afd = open("/dev/dsp", O_WRONLY);
+	if (afd < 0)
+		return 1;
+	ffs_ainfo(affs, &rate, &bps, &ch);
+	ioctl(afd, SOUND_PCM_WRITE_CHANNELS, &ch);
+	ioctl(afd, SOUND_PCM_WRITE_BITS, &bps);
+	ioctl(afd, SOUND_PCM_WRITE_RATE, &rate);
+	return 0;
+}
+
+static void oss_close(void)
+{
+	if (afd > 0)
+		close(afd);
+	afd = 0;
+}
+
 #define ABUFSZ		(1 << 18)
 
 static int a_cons;
@@ -110,7 +130,7 @@ static void a_doreset(int pause)
 static int readkey(void)
 {
 	char b;
-	if (read(STDIN_FILENO, &b, 1) <= 0)
+	if (read(0, &b, 1) <= 0)
 		return -1;
 	return b;
 }
@@ -118,7 +138,7 @@ static int readkey(void)
 static void waitkey(void)
 {
 	struct pollfd ufds[1];
-	ufds[0].fd = STDIN_FILENO;
+	ufds[0].fd = 0;
 	ufds[0].events = POLLIN;
 	poll(ufds, 1, -1);
 }
@@ -189,6 +209,11 @@ static void execkey(void)
 			break;
 		case ' ':
 		case 'p':
+			if (paused)
+				if (oss_open())
+					break;
+			if (!paused)
+				oss_close();
 			paused = !paused;
 			sync_cur = sync_cnt;
 			break;
@@ -276,60 +301,41 @@ static void mainloop(void)
 	exited = 1;
 }
 
-static void oss_init(void)
-{
-	int rate, ch, bps;
-	afd = open("/dev/dsp", O_RDWR);
-	if (afd < 0) {
-		fprintf(stderr, "cannot open /dev/dsp\n");
-		exit(1);
-	}
-	ffs_ainfo(affs, &rate, &bps, &ch);
-	ioctl(afd, SOUND_PCM_WRITE_RATE, &rate);
-	ioctl(afd, SOUND_PCM_WRITE_CHANNELS, &ch);
-	ioctl(afd, SOUND_PCM_WRITE_BITS, &bps);
-}
-
-static void oss_close(void)
-{
-	close(afd);
-}
-
 static void *process_audio(void *dat)
 {
 	while (1) {
 		while (!a_reset && (a_conswait() || paused) && !exited)
 			stroll();
 		if (exited)
-			goto ret;
+			return NULL;
 		if (a_reset) {
 			if (a_reset == 1)
 				a_cons = a_prod;
 			a_reset = 0;
 			continue;
 		}
-		write(afd, a_buf[a_cons], a_len[a_cons]);
-		a_cons = (a_cons + 1) & (AUDIOBUFS - 1);
+		if (afd > 0) {
+			write(afd, a_buf[a_cons], a_len[a_cons]);
+			a_cons = (a_cons + 1) & (AUDIOBUFS - 1);
+		}
 	}
-ret:
-	oss_close();
 	return NULL;
 }
 
 static void term_setup(void)
 {
 	struct termios newtermios;
-	tcgetattr(STDIN_FILENO, &termios);
+	tcgetattr(0, &termios);
 	newtermios = termios;
 	newtermios.c_lflag &= ~ICANON;
 	newtermios.c_lflag &= ~ECHO;
-	tcsetattr(STDIN_FILENO, TCSAFLUSH, &newtermios);
-	fcntl(STDIN_FILENO, F_SETFL, fcntl(STDIN_FILENO, F_GETFL) | O_NONBLOCK);
+	tcsetattr(0, TCSAFLUSH, &newtermios);
+	fcntl(0, F_SETFL, fcntl(0, F_GETFL) | O_NONBLOCK);
 }
 
 static void term_cleanup(void)
 {
-	tcsetattr(STDIN_FILENO, 0, &termios);
+	tcsetattr(0, 0, &termios);
 }
 
 static void sigcont(int sig)
@@ -408,7 +414,10 @@ int main(int argc, char *argv[])
 		return 1;
 	if (audio) {
 		ffs_aconf(affs);
-		oss_init();
+		if (oss_open()) {
+			fprintf(stderr, "fbff: /dev/dsp busy?\n");
+			return 1;
+		}
 		pthread_create(&a_thread, NULL, process_audio, NULL);
 	}
 	if (video) {
@@ -436,6 +445,7 @@ int main(int argc, char *argv[])
 	}
 	if (audio) {
 		pthread_join(a_thread, NULL);
+		oss_close();
 		ffs_free(affs);
 	}
 	return 0;
