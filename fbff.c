@@ -209,10 +209,10 @@ static void execkey(void)
 			break;
 		case ' ':
 		case 'p':
-			if (paused)
+			if (audio && paused)
 				if (oss_open())
 					break;
-			if (!paused)
+			if (audio && !paused)
 				oss_close();
 			paused = !paused;
 			sync_cur = sync_cnt;
