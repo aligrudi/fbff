@@ -1,7 +1,7 @@
 FBFF
 ====
 
-fbff is a framebuffer/OSS media player using ffmpeg or libmpeg3.
+Fbff is a framebuffer/OSS media player using ffmpeg or libmpeg3.
 
 USAGE
 =====
@@ -32,12 +32,16 @@ change the value of avdiff as explained below.
 ==============	================================================
 KEY		ACTION
 ==============	================================================
-p/' '		(space) pause
+p/space		pause
 q		quit
 i		print info
-l/j/J		short/medium/long jump forward
-h/k/K		short/medium/long jump backward
-^[		(escape) clear numerical prefix
+l/j/J		seek forward 10s/60s/600s
+h/k/K		seek backward 10s/60s/600s
+G		seek to the given minute
+%		seek to the specified position in percents
+^[/escape	clear numerical prefix
+mx		mark position as 'x'
+'x		jump to position marked as 'x'
 s		synchronize audio/video with A-V equal to avdiff
 -		set avdiff to -arg
 +		set avdiff to +arg
@@ -53,13 +57,13 @@ The following options can be specified when starting fbff:
 ==============	================================================
 OPTION		DESCRIPTION
 ==============	================================================
--z x		zoom the screen using ffmpeg
--m x		magnify the screen by repeating pixels
+-z x		zoom the video using ffmpeg
+-m x		magnify the video by duplicating pixels
 -j x		jump every x video frames; for slow machines
 -f		start full screen
 -v x		select video stream; '-' disables video
 -a x		select audio stream; '-' disables audio
--t		use time based seeking; only if the default does't work
+-t		use time based seeking; only if the default doesn't work
 -s		don't rely on video framerate; always synchronize
 -u		record avdiff after the first few frames of video
 -r		adjust the video to the right of the screen

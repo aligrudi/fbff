@@ -8,8 +8,9 @@ void ffs_globinit(void);
 struct ffs *ffs_alloc(char *path, int flags);
 void ffs_free(struct ffs *ffs);
 
-long ffs_pos(struct ffs *ffs, int diff);
-void ffs_seek(struct ffs *ffs, long pos, int perframe);
+long ffs_pos(struct ffs *ffs);
+long ffs_duration(struct ffs *ffs);
+void ffs_seek(struct ffs *ffs, struct ffs *vffs, long pos);
 void ffs_wait(struct ffs *ffs);
 int ffs_avdiff(struct ffs *ffs, struct ffs *affs);
 

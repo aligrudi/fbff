@@ -12,16 +12,19 @@
 #define FFS_SAMPLEFMT		AV_SAMPLE_FMT_S16
 #define FFS_CHLAYOUT		AV_CH_LAYOUT_STEREO
 
+#define MAX(a, b)		((a) < (b) ? (b) : (a))
+#define MIN(a, b)		((a) < (b) ? (a) : (b))
+
 /* ffmpeg stream */
 struct ffs {
 	AVCodecContext *cc;
 	AVFormatContext *fc;
+	AVStream *st;
 	AVPacket pkt;
 	int si;			/* stream index */
 	long ts;		/* frame timestamp (ms) */
-	long seq;		/* current position in this stream */
-	long seq_all;		/* seen packets after ffs_seek() */
-	long seq_cur;		/* decoded packet after ffs_seek() */
+	long pts;		/* last decoded packet pts in milliseconds */
+	long dur;		/* last decoded packet duration */
 
 	/* decoding video frames */
 	struct SwsContext *swsc;
@@ -49,8 +52,9 @@ struct ffs *ffs_alloc(char *path, int flags)
 	ffs->cc = ffs->fc->streams[ffs->si]->codec;
 	if (avcodec_open2(ffs->cc, avcodec_find_decoder(ffs->cc->codec_id), &opt))
 		goto failed;
-	ffs->tmp = avcodec_alloc_frame();
-	ffs->dst = avcodec_alloc_frame();
+	ffs->st = ffs->fc->streams[ffs->si];
+	ffs->tmp = av_frame_alloc();
+	ffs->dst = av_frame_alloc();
 	return ffs;
 failed:
 	ffs_free(ffs);
@@ -78,10 +82,12 @@ static AVPacket *ffs_pkt(struct ffs *ffs)
 {
 	AVPacket *pkt = &ffs->pkt;
 	while (av_read_frame(ffs->fc, pkt) >= 0) {
-		ffs->seq_all++;
 		if (pkt->stream_index == ffs->si) {
-			ffs->seq_cur++;
-			ffs->seq++;
+			long pts = (pkt->dts == AV_NOPTS_VALUE ? 0 : pkt->dts) *
+				av_q2d(ffs->st->time_base) * 1000;
+			ffs->dur = MIN(MAX(0, pts - ffs->pts), 1000);
+			if (pts > ffs->pts || pts + 200 < ffs->pts)
+				ffs->pts = pts;
 			return pkt;
 		}
 		av_free_packet(pkt);
@@ -106,12 +112,9 @@ static int wait(long ts, int vdelay)
 	return 1;
 }
 
-#define MAX(a, b)	((a) < (b) ? (b) : (a))
-
 void ffs_wait(struct ffs *ffs)
 {
-	AVRational *r = &ffs->fc->streams[ffs->si]->r_frame_rate;
-	int vdelay = 1000 * r->den / r->num;
+	int vdelay = ffs->dur;
 	if (!wait(ffs->ts, MAX(vdelay, 20)))
 		ffs->ts += MAX(vdelay, 20);
 	else
@@ -121,23 +124,18 @@ void ffs_wait(struct ffs *ffs)
 /* audio/video frame offset difference */
 int ffs_avdiff(struct ffs *ffs, struct ffs *affs)
 {
-	return affs->seq_all - ffs->seq_all;
+	return affs->pts - ffs->pts;
 }
 
-long ffs_pos(struct ffs *ffs, int diff)
+long ffs_pos(struct ffs *ffs)
 {
-	return (ffs->si << 28) | (ffs->seq + diff);
+	return ffs->pts;
 }
 
-void ffs_seek(struct ffs *ffs, long pos, int perframe)
+void ffs_seek(struct ffs *ffs, struct ffs *vffs, long pos)
 {
-	long idx = pos >> 28;
-	long seq = pos & 0x00ffffff;
-	av_seek_frame(ffs->fc, idx, seq * perframe,
-			perframe == 1 ? AVSEEK_FLAG_FRAME : 0);
-	ffs->seq = seq;
-	ffs->seq_all = 0;
-	ffs->seq_cur = 0;
+	av_seek_frame(ffs->fc, vffs->si,
+		pos / av_q2d(vffs->st->time_base) / 1000, 0);
 	ffs->ts = 0;
 }
 
@@ -254,4 +252,11 @@ void ffs_globinit(void)
 {
 	av_register_all();
 	avformat_network_init();
+}
+
+long ffs_duration(struct ffs *ffs)
+{
+	if (ffs->st->duration == AV_NOPTS_VALUE)
+		return 0;
+	return ffs->st->duration * av_q2d(ffs->st->time_base) * 1000;
 }

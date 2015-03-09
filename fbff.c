@@ -1,9 +1,9 @@
 /*
  * fbff - a small ffmpeg-based framebuffer/oss media player
  *
- * Copyright (C) 2009-2013 Ali Gholami Rudi
+ * Copyright (C) 2009-2015 Ali Gholami Rudi
  *
- * This program is released under the modified BSD license.
+ * This program is released under the Modified BSD license.
  */
 #include <fcntl.h>
 #include <pty.h>
@@ -25,10 +25,13 @@
 #define MIN(a, b)	((a) < (b) ? (a) : (b))
 #define MAX(a, b)	((a) > (b) ? (a) : (b))
 
-static int arg;
-static struct termios termios;
 static int paused;
 static int exited;
+static int domark;
+static int dojump;
+static int arg;
+static char filename[32];
+static struct termios termios;
 
 static float zoom = 1;
 static int magnify = 1;
@@ -38,12 +41,12 @@ static int video = 1;		/* video stream; 0=none, 1=auto, >2=idx */
 static int audio = 1;		/* audio stream; 0=none, 1=auto, >2=idx */
 static int rjust = 0;		/* justify video to the right */
 static int bjust = 0;		/* justify video to the bottom */
-static int frame_jmp = 1;	/* the changes to pos_cur for each frame */
 
 static struct ffs *affs;	/* audio ffmpeg stream */
 static struct ffs *vffs;	/* video ffmpeg stream */
 static int afd;			/* oss fd */
 static int vnum;		/* decoded video frame count */
+static long mark[256];		/* marks */
 
 static int sync_diff;		/* audio/video frame position diff */
 static int sync_period;		/* sync after every this many number of frames */
@@ -127,7 +130,7 @@ static void a_doreset(int pause)
 		stroll();
 }
 
-static int readkey(void)
+static int cmdread(void)
 {
 	char b;
 	if (read(0, &b, 1) <= 0)
@@ -135,7 +138,7 @@ static int readkey(void)
 	return b;
 }
 
-static void waitkey(void)
+static void cmdwait(void)
 {
 	struct pollfd ufds[1];
 	ufds[0].fd = 0;
@@ -143,69 +146,94 @@ static void waitkey(void)
 	poll(ufds, 1, -1);
 }
 
-static int ffarg(int def)
+static void cmdjmp(int n, int rel)
+{
+	struct ffs *ffs = video ? vffs : affs;
+	long pos = (rel ? ffs_pos(ffs) : 0) + n * 1000;
+	a_doreset(0);
+	sync_cur = sync_cnt;
+	if (pos < 0)
+		pos = 0;
+	if (!rel)
+		mark['\''] = ffs_pos(ffs);
+	if (audio)
+		ffs_seek(affs, ffs, pos);
+	if (video)
+		ffs_seek(vffs, ffs, pos);
+}
+
+static void cmdinfo(void)
+{
+	struct ffs *ffs = video ? vffs : affs;
+	long pos = ffs_pos(ffs);
+	long percent = ffs_duration(ffs) ? pos * 1000 / ffs_duration(ffs) : 0;
+	printf("%c %3ld.%01ld%%  %3ld:%02ld.%01ld  (AV:%4d)     [%20s] \r",
+		paused ? (afd < 0 ? '*' : ' ') : '>',
+		percent / 10, percent % 10,
+		pos / 60000, (pos % 60000) / 1000, (pos % 1000) / 100,
+		video && audio ? ffs_avdiff(vffs, affs) : 0,
+		filename);
+	fflush(stdout);
+}
+
+static int cmdarg(int def)
 {
 	int n = arg;
 	arg = 0;
 	return n ? n : def;
 }
 
-static void ffjmp(int n, int rel)
-{
-	struct ffs *ffs = video ? vffs : affs;
-	long pos = ffs_pos(ffs, n);
-	a_doreset(0);
-	sync_cur = sync_cnt;
-	if (audio)
-		ffs_seek(affs, pos, frame_jmp);
-	if (video)
-		ffs_seek(vffs, pos, frame_jmp);
-}
-
-static void printinfo(void)
-{
-	struct ffs *ffs = video ? vffs : affs;
-	printf("fbff:   %8lx \t (AV: %d)\r",
-		ffs_pos(ffs, 0), video && audio ? ffs_avdiff(vffs, affs) : 0);
-	fflush(stdout);
-}
-
-#define JMP1		(1 << 5)
-#define JMP2		(JMP1 << 3)
-#define JMP3		(JMP2 << 5)
-
-static void execkey(void)
+static void cmdexec(void)
 {
 	int c;
-	while ((c = readkey()) != -1) {
+	while ((c = cmdread()) >= 0) {
+		if (domark) {
+			domark = 0;
+			mark[c] = ffs_pos(video ? vffs : affs);
+			continue;
+		}
+		if (dojump) {
+			dojump = 0;
+			if (mark[c] > 0)
+				cmdjmp(mark[c] / 1000, 0);
+			continue;
+		}
 		switch (c) {
 		case 'q':
 			exited = 1;
 			break;
 		case 'l':
-			ffjmp(ffarg(1) * JMP1, 1);
+			cmdjmp(cmdarg(1) * 10, 1);
 			break;
 		case 'h':
-			ffjmp(-ffarg(1) * JMP1, 1);
+			cmdjmp(-cmdarg(1) * 10, 1);
 			break;
 		case 'j':
-			ffjmp(ffarg(1) * JMP2, 1);
+			cmdjmp(cmdarg(1) * 60, 1);
 			break;
 		case 'k':
-			ffjmp(-ffarg(1) * JMP2, 1);
+			cmdjmp(-cmdarg(1) * 60, 1);
 			break;
 		case 'J':
-			ffjmp(ffarg(1) * JMP3, 1);
+			cmdjmp(cmdarg(1) * 600, 1);
 			break;
 		case 'K':
-			ffjmp(-ffarg(1) * JMP3, 1);
+			cmdjmp(-cmdarg(1) * 600, 1);
+			break;
+		case 'G':
+			cmdjmp(cmdarg(1) * 60, 0);
 			break;
 		case '%':
-			if (arg)
-				ffjmp(100, 0);
+			cmdjmp(cmdarg(0) * ffs_duration(vffs ? vffs : affs) / 100000, 0);
+			break;
+		case 'm':
+			domark = 1;
+			break;
+		case '\'':
+			dojump = 1;
 			break;
 		case 'i':
-			printinfo();
+			cmdinfo();
 			break;
 		case ' ':
 		case 'p':
@@ -218,19 +246,19 @@ static void execkey(void)
 			sync_cur = sync_cnt;
 			break;
 		case '-':
-			sync_diff = -ffarg(0);
+			sync_diff = -cmdarg(0);
 			break;
 		case '+':
-			sync_diff = ffarg(0);
+			sync_diff = cmdarg(0);
 			break;
 		case 'a':
 			sync_diff = ffs_avdiff(vffs, affs);
 			break;
 		case 'c':
-			sync_cnt = ffarg(0);
+			sync_cnt = cmdarg(0);
 			break;
 		case 's':
-			sync_cur = ffarg(sync_cnt);
+			sync_cur = cmdarg(sync_cnt);
 			break;
 		case 27:
 			arg = 0;
@@ -268,12 +296,12 @@ static void mainloop(void)
 {
 	int eof = 0;
 	while (eof < audio + video) {
-		execkey();
+		cmdexec();
 		if (exited)
 			break;
 		if (paused) {
 			a_doreset(1);
-			waitkey();
+			cmdwait();
 			continue;
 		}
 		while (audio && !eof && !a_prodwait()) {
@@ -345,15 +373,14 @@ static void sigcont(int sig)
 
 static char *usage = "usage: fbff [options] file\n"
 	"\noptions:\n"
-	"  -z x     zoom the screen using ffmpeg\n"
-	"  -m x     magnify the screen by repeating pixels\n"
+	"  -z x     zoom the video\n"
+	"  -m x     magnify the video by duplicating pixels\n"
 	"  -j x     jump every x video frames; for slow machines\n"
 	"  -f       start full screen\n"
 	"  -v x     select video stream; '-' disables video\n"
 	"  -a x     select audio stream; '-' disables audio\n"
-	"  -s       always synchronize; useful for files with bad video framerate\n"
-	"  -u       record avdiff after a few frames\n"
-	"  -t       use time based seeking; only if the default does't work\n"
+	"  -s       always synchronize (-sx for every x frames)\n"
+	"  -u       record A/V delay after the first few frames\n"
 	"  -r       adjust the video to the right of the screen\n"
 	"  -b       adjust the video to the bottom of the screen\n\n";
 
@@ -374,8 +401,6 @@ static void read_args(int argc, char *argv[])
 			fullscreen = 1;
 		if (c[1] == 's')
 			sync_period = c[2] ? atoi(c + 2) : 1;
-		if (c[1] == 't')
-			frame_jmp = 1024;
 		if (c[1] == 'h')
 			printf(usage);
 		if (c[1] == 'r')
@@ -406,6 +431,7 @@ int main(int argc, char *argv[])
 	}
 	read_args(argc, argv);
 	ffs_globinit();
+	snprintf(filename, sizeof(filename), "%s", path);
 	if (video && !(vffs = ffs_alloc(path, FFS_VIDEO | (video - 1))))
 		video = 0;
 	if (audio && !(affs = ffs_alloc(path, FFS_AUDIO | (audio - 1))))
@@ -438,6 +464,7 @@ int main(int argc, char *argv[])
 	signal(SIGCONT, sigcont);
 	mainloop();
 	term_cleanup();
+	printf("\n");
 
 	if (video) {
 		fb_free();
