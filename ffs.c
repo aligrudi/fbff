@@ -256,7 +256,9 @@ void ffs_globinit(void)
 
 long ffs_duration(struct ffs *ffs)
 {
-	if (ffs->st->duration == AV_NOPTS_VALUE)
-		return 0;
-	return ffs->st->duration * av_q2d(ffs->st->time_base) * 1000;
+	if (ffs->st->duration != AV_NOPTS_VALUE)
+		return ffs->st->duration * av_q2d(ffs->st->time_base) * 1000;
+	if (ffs->fc->duration > 0)
+		return ffs->fc->duration / (AV_TIME_BASE / 1000);
+	return 0;
 }
