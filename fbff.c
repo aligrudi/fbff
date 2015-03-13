@@ -167,7 +167,7 @@ static void cmdinfo(void)
 	struct ffs *ffs = video ? vffs : affs;
 	long pos = ffs_pos(ffs);
 	long percent = ffs_duration(ffs) ? pos * 1000 / ffs_duration(ffs) : 0;
-	printf("%c %3ld.%01ld%%  %3ld:%02ld.%01ld  (AV:%4d)     [%20s] \r",
+	printf("%c %3ld.%01ld%%  %3ld:%02ld.%01ld  (AV:%4d)     [%s] \r",
 		paused ? (afd < 0 ? '*' : ' ') : '>',
 		percent / 10, percent % 10,
 		pos / 60000, (pos % 60000) / 1000, (pos % 1000) / 100,
@@ -221,7 +221,7 @@ static void cmdexec(void)
 			cmdjmp(-cmdarg(1) * 600, 1);
 			break;
 		case 'G':
-			cmdjmp(cmdarg(1) * 60, 0);
+			cmdjmp(cmdarg(0) * 60, 0);
 			break;
 		case '%':
 			cmdjmp(cmdarg(0) * ffs_duration(vffs ? vffs : affs) / 100000, 0);
