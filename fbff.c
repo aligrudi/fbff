@@ -5,10 +5,9 @@
  *
  * This program is released under the Modified BSD license.
  */
+#include <ctype.h>
 #include <fcntl.h>
 #include <pty.h>
-#include <ctype.h>
-#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,7 +30,6 @@ static int domark;
 static int dojump;
 static int arg;
 static char filename[32];
-static struct termios termios;
 
 static float zoom = 1;
 static int magnify = 1;
@@ -350,27 +348,6 @@ static void *process_audio(void *dat)
 	return NULL;
 }
 
-static void term_setup(void)
-{
-	struct termios newtermios;
-	tcgetattr(0, &termios);
-	newtermios = termios;
-	newtermios.c_lflag &= ~ICANON;
-	newtermios.c_lflag &= ~ECHO;
-	tcsetattr(0, TCSAFLUSH, &newtermios);
-	fcntl(0, F_SETFL, fcntl(0, F_GETFL) | O_NONBLOCK);
-}
-
-static void term_cleanup(void)
-{
-	tcsetattr(0, 0, &termios);
-}
-
-static void sigcont(int sig)
-{
-	term_setup();
-}
-
 static char *usage = "usage: fbff [options] file\n"
 	"\noptions:\n"
 	"  -z x     zoom the video\n"
@@ -421,12 +398,29 @@ static void read_args(int argc, char *argv[])
 	}
 }
 
+static void term_init(struct termios *termios)
+{
+	struct termios newtermios;
+	tcgetattr(0, termios);
+	newtermios = *termios;
+	newtermios.c_lflag &= ~ICANON;
+	newtermios.c_lflag &= ~ECHO;
+	tcsetattr(0, TCSAFLUSH, &newtermios);
+	fcntl(0, F_SETFL, fcntl(0, F_GETFL) | O_NONBLOCK);
+}
+
+static void term_done(struct termios *termios)
+{
+	tcsetattr(0, 0, termios);
+}
+
 int main(int argc, char *argv[])
 {
+	struct termios termios;
 	pthread_t a_thread;
 	char *path = argv[argc - 1];
 	if (argc < 2) {
-		printf("usage: %s [options] filename\n", argv[0]);
+		printf("usage: %s [-u -s60 ...] file\n", argv[0]);
 		return 1;
 	}
 	read_args(argc, argv);
@@ -460,10 +454,9 @@ int main(int argc, char *argv[])
 		}
 		ffs_vconf(vffs, zoom, fb_mode());
 	}
-	term_setup();
-	signal(SIGCONT, sigcont);
+	term_init(&termios);
 	mainloop();
-	term_cleanup();
+	term_done(&termios);
 	printf("\n");
 
 	if (video) {
