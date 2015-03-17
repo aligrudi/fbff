@@ -17,12 +17,13 @@
 #include <sys/poll.h>
 #include <sys/soundcard.h>
 #include <pthread.h>
-#include "config.h"
 #include "ffs.h"
 #include "draw.h"
 
 #define MIN(a, b)	((a) < (b) ? (a) : (b))
 #define MAX(a, b)	((a) > (b) ? (a) : (b))
+
+typedef unsigned int fbval_t;	/* framebuffer depth */
 
 static int paused;
 static int exited;
@@ -35,10 +36,10 @@ static float zoom = 1;
 static int magnify = 1;
 static int jump = 0;
 static int fullscreen = 0;
-static int video = 1;		/* video stream; 0=none, 1=auto, >2=idx */
-static int audio = 1;		/* audio stream; 0=none, 1=auto, >2=idx */
-static int rjust = 0;		/* justify video to the right */
-static int bjust = 0;		/* justify video to the bottom */
+static int video = 1;		/* video stream; 0:none, 1:auto, >1:idx */
+static int audio = 1;		/* audio stream; 0:none, 1:auto, >1:idx */
+static int posx, posy;		/* video position */
+static int rjust, bjust;	/* justify video to screen right/bottom */
 
 static struct ffs *affs;	/* audio ffmpeg stream */
 static struct ffs *vffs;	/* video ffmpeg stream */
@@ -58,28 +59,43 @@ static void stroll(void)
 	usleep(10000);
 }
 
+static void draw_row(int rb, int cb, void *img, int cn)
+{
+	if (rb < 0 || rb >= fb_rows())
+		return;
+	if (cb < 0) {
+		cn = -cb < cn ? cn + cb : 0;
+		img += -cb;
+		cb = 0;
+	}
+	if (cb + cn >= fb_cols())
+		cn = cb < fb_cols() ? fb_cols() - cb : 0;
+	fb_set(rb, cb, img, cn);
+}
+
 static void draw_frame(void *img, int linelen)
 {
-	int w, h;
-	fbval_t buf[1 << 14];
-	int nr, nc, cb, rb;
+	int w, h, rn, cn, cb, rb;
 	int i, r, c;
 	ffs_vinfo(vffs, &w, &h);
-	nr = MIN(h * zoom, fb_rows() / magnify);
-	nc = MIN(w * zoom, fb_cols() / magnify);
-	cb = rjust ? fb_cols() - nc * magnify : 0;
-	rb = bjust ? fb_rows() - nr * magnify : 0;
-	for (r = 0; r < nr; r++) {
-		fbval_t *row = img + r * linelen;
-		if (magnify == 1) {
-			fb_set(rb + r, cb, row, nc);
-			continue;
-		}
-		for (c = 0; c < nc; c++)
+	rn = h * zoom;
+	cn = w * zoom;
+	cb = rjust ? fb_cols() - cn * magnify + posx : posx;
+	rb = bjust ? fb_rows() - rn * magnify + posy : posy;
+	if (magnify == 1) {
+		for (r = 0; r < rn; r++)
+			draw_row(rb + r, cb, img + r * linelen, cn);
+	} else {
+		fbval_t *brow = malloc(cn * magnify * sizeof(fbval_t));
+		for (r = 0; r < rn; r++) {
+			fbval_t *row = img + r * linelen;
+			for (c = 0; c < cn; c++)
+				for (i = 0; i < magnify; i++)
+					brow[c * magnify + i] = row[c];
 			for (i = 0; i < magnify; i++)
-				buf[c * magnify + i] = row[c];
-		for (i = 0; i < magnify; i++)
-			fb_set((rb + r) * magnify + i, cb, buf, nc * magnify);
+				draw_row((rb + r) * magnify + i, cb, brow, cn * magnify);
+		}
+		free(brow);
 	}
 }
 
@@ -103,12 +119,15 @@ static void oss_close(void)
 	afd = 0;
 }
 
-#define ABUFSZ		(1 << 18)
+/* audio buffers */
+
+#define ABUFCNT		(1 << 3)	/* number of audio buffers */
+#define ABUFLEN		(1 << 18)	/* audio buffer length */
 
 static int a_cons;
 static int a_prod;
-static char a_buf[AUDIOBUFS][ABUFSZ];
-static int a_len[AUDIOBUFS];
+static char a_buf[ABUFCNT][ABUFLEN];
+static int a_len[ABUFCNT];
 static int a_reset;
 
 static int a_conswait(void)
@@ -118,7 +137,7 @@ static int a_conswait(void)
 
 static int a_prodwait(void)
 {
-	return ((a_prod + 1) & (AUDIOBUFS - 1)) == a_cons;
+	return ((a_prod + 1) & (ABUFCNT - 1)) == a_cons;
 }
 
 static void a_doreset(int pause)
@@ -127,6 +146,59 @@ static void a_doreset(int pause)
 	while (audio && a_reset)
 		stroll();
 }
+
+/* subtitle handling */
+
+#define SUBSCNT		2048		/* number of subtitles */
+#define SUBSLEN		80		/* maximum subtitle length */
+
+static char *sub_path;			/* subtitles file */
+static char sub_text[SUBSCNT][SUBSLEN];	/* subtitle text */
+static long sub_beg[SUBSCNT];		/* printing position */
+static long sub_end[SUBSCNT];		/* hiding position */
+static int sub_n;			/* subtitle count */
+static int sub_last;			/* last printed subtitle */
+
+static void sub_read(void)
+{
+	struct ffs *sffs = ffs_alloc(sub_path, FFS_SUBTS);
+	if (!sffs)
+		return;
+	while (sub_n < SUBSCNT && !ffs_sdec(sffs, &sub_text[sub_n][0], SUBSLEN,
+			&sub_beg[sub_n], &sub_end[sub_n])) {
+		sub_n++;
+	}
+	ffs_free(sffs);
+}
+
+static void sub_print(void)
+{
+	struct ffs *ffs = video ? vffs : affs;
+	int l = 0;
+	int h = sub_n;
+	long pos = ffs_pos(ffs);
+	while (l < h) {
+		int m = (l + h) >> 1;
+		if (pos >= sub_beg[m] && pos <= sub_end[m]) {
+			if (sub_last != m)
+				printf("\r\33[J%s", sub_text[m]);
+			sub_last = m;
+			fflush(stdout);
+			return;
+		}
+		if (pos < sub_beg[m])
+			h = m;
+		else
+			l = m + 1;
+	}
+	if (sub_last >= 0) {
+		printf("\r\33[J");
+		fflush(stdout);
+		sub_last = -1;
+	}
+}
+
+/* fbff commands */
 
 static int cmdread(void)
 {
@@ -164,8 +236,8 @@ static void cmdinfo(void)
 {
 	struct ffs *ffs = video ? vffs : affs;
 	long pos = ffs_pos(ffs);
-	long percent = ffs_duration(ffs) ? pos * 1000 / ffs_duration(ffs) : 0;
-	printf("%c %3ld.%01ld%%  %3ld:%02ld.%01ld  (AV:%4d)     [%s] \r",
+	long percent = ffs_duration(ffs) ? pos * 10 / (ffs_duration(ffs) / 100) : 0;
+	printf("\r\33[J%c %3ld.%01ld%%  %3ld:%02ld.%01ld  (AV:%4d)     [%s] \r",
 		paused ? (afd < 0 ? '*' : ' ') : '>',
 		percent / 10, percent % 10,
 		pos / 60000, (pos % 60000) / 1000, (pos % 1000) / 100,
@@ -303,12 +375,12 @@ static void mainloop(void)
 			continue;
 		}
 		while (audio && !eof && !a_prodwait()) {
-			int ret = ffs_adec(affs, a_buf[a_prod], ABUFSZ);
+			int ret = ffs_adec(affs, a_buf[a_prod], ABUFLEN);
 			if (ret < 0)
 				eof++;
 			if (ret > 0) {
 				a_len[a_prod] = ret;
-				a_prod = (a_prod + 1) & (AUDIOBUFS - 1);
+				a_prod = (a_prod + 1) & (ABUFCNT - 1);
 			}
 		}
 		if (video && (!audio || eof || vsync())) {
@@ -320,6 +392,7 @@ static void mainloop(void)
 				eof++;
 			if (ret > 0)
 				draw_frame((void *) buf, ret);
+			sub_print();
 		} else {
 			stroll();
 		}
@@ -342,7 +415,7 @@ static void *process_audio(void *dat)
 		}
 		if (afd > 0) {
 			write(afd, a_buf[a_cons], a_len[a_cons]);
-			a_cons = (a_cons + 1) & (AUDIOBUFS - 1);
+			a_cons = (a_cons + 1) & (ABUFCNT - 1);
 		}
 	}
 	return NULL;
@@ -350,14 +423,17 @@ static void *process_audio(void *dat)
 
 static char *usage = "usage: fbff [options] file\n"
 	"\noptions:\n"
-	"  -z x     zoom the video\n"
-	"  -m x     magnify the video by duplicating pixels\n"
-	"  -j x     jump every x video frames; for slow machines\n"
+	"  -z n     zoom the video\n"
+	"  -m n     magnify the video by duplicating pixels\n"
+	"  -j n     jump every n video frames; for slow machines\n"
 	"  -f       start full screen\n"
-	"  -v x     select video stream; '-' disables video\n"
-	"  -a x     select audio stream; '-' disables audio\n"
+	"  -v n     select video stream; '-' disables video\n"
+	"  -a n     select audio stream; '-' disables audio\n"
 	"  -s       always synchronize (-sx for every x frames)\n"
 	"  -u       record A/V delay after the first few frames\n"
+	"  -t path  subtitles file\n"
+	"  -x n     horizontal video position\n"
+	"  -y n     vertical video position\n"
 	"  -r       adjust the video to the right of the screen\n"
 	"  -b       adjust the video to the bottom of the screen\n\n";
 
@@ -378,8 +454,14 @@ static void read_args(int argc, char *argv[])
 			fullscreen = 1;
 		if (c[1] == 's')
 			sync_period = c[2] ? atoi(c + 2) : 1;
+		if (c[1] == 't')
+			sub_path = c[2] ? c + 2 : argv[++i];
 		if (c[1] == 'h')
 			printf(usage);
+		if (c[1] == 'x')
+			posx = c[2] ? atoi(c + 2) : atoi(argv[++i]);
+		if (c[1] == 'y')
+			posy = c[2] ? atoi(c + 2) : atoi(argv[++i]);
 		if (c[1] == 'r')
 			rjust = 1;
 		if (c[1] == 'b')
@@ -432,6 +514,8 @@ int main(int argc, char *argv[])
 		audio = 0;
 	if (!video && !audio)
 		return 1;
+	if (sub_path)
+		sub_read();
 	if (audio) {
 		ffs_aconf(affs);
 		if (oss_open()) {
@@ -446,7 +530,7 @@ int main(int argc, char *argv[])
 			return 1;
 		ffs_vinfo(vffs, &w, &h);
 		if (magnify != 1 && sizeof(fbval_t) != FBM_BPP(fb_mode()))
-			fprintf(stderr, "fbff: magnify != 1 and fbval_t doesn't match\n");
+			fprintf(stderr, "fbff: fbval_t does not match\n");
 		if (fullscreen) {
 			float hz = (float) fb_rows() / h / magnify;
 			float wz = (float) fb_cols() / w / magnify;
