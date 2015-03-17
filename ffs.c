@@ -33,10 +33,20 @@ struct ffs {
 	AVFrame *tmp;
 };
 
+static int ffs_stype(int flags)
+{
+	if (flags & FFS_VIDEO)
+		return AVMEDIA_TYPE_VIDEO;
+	if (flags & FFS_AUDIO)
+		return AVMEDIA_TYPE_AUDIO;
+	if (flags & FFS_SUBTS)
+		return AVMEDIA_TYPE_SUBTITLE;
+	return 0;
+}
+
 struct ffs *ffs_alloc(char *path, int flags)
 {
 	struct ffs *ffs;
-	int type = flags & FFS_VIDEO ? AVMEDIA_TYPE_VIDEO : AVMEDIA_TYPE_AUDIO;
 	int idx = (flags & FFS_STRIDX) - 1;
 	AVDictionary *opt = NULL;
 	ffs = malloc(sizeof(*ffs));
@@ -46,7 +56,7 @@ struct ffs *ffs_alloc(char *path, int flags)
 		goto failed;
 	if (avformat_find_stream_info(ffs->fc, NULL) < 0)
 		goto failed;
-	ffs->si = av_find_best_stream(ffs->fc, type, idx, -1, NULL, 0);
+	ffs->si = av_find_best_stream(ffs->fc, ffs_stype(flags), idx, -1, NULL, 0);
 	if (ffs->si < 0)
 		goto failed;
 	ffs->cc = ffs->fc->streams[ffs->si]->codec;
@@ -167,6 +177,38 @@ int ffs_vdec(struct ffs *ffs, void **buf)
 		*buf = (void *) ffs->dst->data[0];
 		return ffs->dst->linesize[0];
 	}
+	return 0;
+}
+
+int ffs_sdec(struct ffs *ffs, char *buf, int blen, long *beg, long *end)
+{
+	AVPacket *pkt = ffs_pkt(ffs);
+	AVSubtitle sub = {0};
+	AVSubtitleRect *rect;
+	int fine = 0;
+	int i;
+	if (!pkt)
+		return -1;
+	avcodec_decode_subtitle2(ffs->cc, &sub, &fine, pkt);
+	av_free_packet(pkt);
+	buf[0] = '\0';
+	if (!fine)
+		return 1;
+	rect = sub.num_rects ? sub.rects[0] : NULL;
+	if (rect && rect->text)
+		snprintf(buf, blen, "%s", sub.rects[0]->text);
+	if (rect && !rect->text && rect->ass) {
+		char *s = rect->ass;
+		for (i = 0; s && i < 9; i++)
+			s = strchr(s, ',') ? strchr(s, ',') + 1 : NULL;
+		if (s)
+			snprintf(buf, blen, "%s", s);
+	}
+	if (strchr(buf, '\n'))
+		*strchr(buf, '\n') = '\0';
+	*beg = ffs->pts + sub.start_display_time * av_q2d(ffs->st->time_base) * 1000;
+	*end = ffs->pts + sub.end_display_time * av_q2d(ffs->st->time_base) * 1000;
+	avsubtitle_free(&sub);
 	return 0;
 }
 

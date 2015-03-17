@@ -1,5 +1,6 @@
 #define FFS_AUDIO	0x1000
 #define FFS_VIDEO	0x2000
+#define FFS_SUBTS	0x4000
 #define FFS_STRIDX	0x0fff
 
 void ffs_globinit(void);
@@ -23,3 +24,6 @@ int ffs_adec(struct ffs *ffs, void *buf, int blen);
 void ffs_vconf(struct ffs *ffs, float zoom, int fbm);
 void ffs_vinfo(struct ffs *ffs, int *w, int *h);
 int ffs_vdec(struct ffs *ffs, void **buf);
+
+/* subtitles */
+int ffs_sdec(struct ffs *ffs, char *buf, int blen, long *beg, long *end);
