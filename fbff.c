@@ -181,7 +181,7 @@ static void sub_print(void)
 		int m = (l + h) >> 1;
 		if (pos >= sub_beg[m] && pos <= sub_end[m]) {
 			if (sub_last != m)
-				printf("\r\33[J%s", sub_text[m]);
+				printf("\r\33[K%s", sub_text[m]);
 			sub_last = m;
 			fflush(stdout);
 			return;
@@ -192,7 +192,7 @@ static void sub_print(void)
 			l = m + 1;
 	}
 	if (sub_last >= 0) {
-		printf("\r\33[J");
+		printf("\r\33[K");
 		fflush(stdout);
 		sub_last = -1;
 	}
@@ -237,7 +237,7 @@ static void cmdinfo(void)
 	struct ffs *ffs = video ? vffs : affs;
 	long pos = ffs_pos(ffs);
 	long percent = ffs_duration(ffs) ? pos * 10 / (ffs_duration(ffs) / 100) : 0;
-	printf("\r\33[J%c %3ld.%01ld%%  %3ld:%02ld.%01ld  (AV:%4d)     [%s] \r",
+	printf("\r\33[K%c %3ld.%01ld%%  %3ld:%02ld.%01ld  (AV:%4d)     [%s] \r",
 		paused ? (afd < 0 ? '*' : ' ') : '>',
 		percent / 10, percent % 10,
 		pos / 60000, (pos % 60000) / 1000, (pos % 1000) / 100,
