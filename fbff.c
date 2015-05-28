@@ -16,8 +16,8 @@
 #include <termios.h>
 #include <unistd.h>
 #include <sys/poll.h>
-#include <sys/soundcard.h>
 #include <pthread.h>
+#include <tinyalsa/asoundlib.h>
 #include "ffs.h"
 #include "draw.h"
 
@@ -44,7 +44,7 @@ static char *ossdsp;		/* OSS device */
 
 static struct ffs *affs;	/* audio ffmpeg stream */
 static struct ffs *vffs;	/* video ffmpeg stream */
-static int afd;			/* oss fd */
+struct pcm *card;			/* alsa card */
 static int vnum;		/* decoded video frame count */
 static long mark[256];		/* marks */
 
@@ -108,24 +108,46 @@ static void draw_frame(void *img, int linelen)
 
 static int oss_open(void)
 {
+	struct pcm_config cfg;
 	int rate, ch, bps;
-	int frag = 0x0003000b;	/* 0xmmmmssss: 2^m fragments of size 2^s each */
-	afd = open(ossdsp ? ossdsp : "/dev/dsp", O_WRONLY);
-	if (afd < 0)
-		return 1;
+
 	ffs_ainfo(affs, &rate, &bps, &ch);
-	ioctl(afd, SOUND_PCM_WRITE_CHANNELS, &ch);
-	ioctl(afd, SOUND_PCM_WRITE_BITS, &bps);
-	ioctl(afd, SOUND_PCM_WRITE_RATE, &rate);
-	ioctl(afd, SOUND_PCM_SETFRAGMENT, &frag);
+
+	cfg.channels = (unsigned int) ch;
+	cfg.rate = (unsigned int)rate;
+	cfg.period_size = 1024;
+	cfg.period_count = 4;
+	switch (bps) {
+		case 8:
+			cfg.format = PCM_FORMAT_S8;
+			break;
+		case 16:
+			cfg.format = PCM_FORMAT_S16_LE;
+			break;
+		case 24:
+			cfg.format = PCM_FORMAT_S24_LE;
+			break;
+		case 32:
+			cfg.format = PCM_FORMAT_S32_LE;
+			break;
+		default:
+			return 1;
+	}
+	cfg.start_threshold = 0;
+	cfg.stop_threshold = 0;
+	cfg.silence_threshold = 0;
+	card = pcm_open(0, 0, PCM_OUT, &cfg);
+	if (!card)
+		return 1;
+
 	return 0;
 }
 
 static void oss_close(void)
 {
-	if (afd > 0)
-		close(afd);
-	afd = 0;
+	if (card)
+		pcm_close(card);
+	card = NULL;
 }
 
 /* audio buffers */
@@ -247,7 +269,7 @@ static void cmdinfo(void)
 	long pos = ffs_pos(ffs);
 	long percent = ffs_duration(ffs) ? pos * 10 / (ffs_duration(ffs) / 100) : 0;
 	printf("\r\33[K%c %3ld.%01ld%%  %3ld:%02ld.%01ld  (AV:%4d)     [%s] \r",
-		paused ? (afd < 0 ? '*' : ' ') : '>',
+		paused ? (card ? '*' : ' ') : '>',
 		percent / 10, percent % 10,
 		pos / 60000, (pos % 60000) / 1000, (pos % 1000) / 100,
 		video && audio ? ffs_avdiff(vffs, affs) : 0,
@@ -422,8 +444,8 @@ static void *process_audio(void *dat)
 			a_reset = 0;
 			continue;
 		}
-		if (afd > 0) {
-			write(afd, a_buf[a_cons], a_len[a_cons]);
+		if (card) {
+			pcm_write(card, a_buf[a_cons], (unsigned int) a_len[a_cons]);
 			a_cons = (a_cons + 1) & (ABUFCNT - 1);
 		}
 	}
