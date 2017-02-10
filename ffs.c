@@ -252,14 +252,14 @@ static int fbm2pixfmt(int fbm)
 {
 	switch (fbm & 0x0fff) {
 	case 0x888:
-		return PIX_FMT_RGB32;
+		return AV_PIX_FMT_RGB32;
 	case 0x565:
-		return PIX_FMT_RGB565;
+		return AV_PIX_FMT_RGB565;
 	case 0x233:
-		return PIX_FMT_RGB8;
+		return AV_PIX_FMT_RGB8;
 	default:
 		fprintf(stderr, "ffs: unknown fb_mode()\n");
-		return PIX_FMT_RGB32;
+		return AV_PIX_FMT_RGB32;
 	}
 }
 
@@ -272,7 +272,7 @@ void ffs_vconf(struct ffs *ffs, float zoom, int fbm)
 	uint8_t *buf = NULL;
 	int n;
 	ffs->swsc = sws_getContext(w, h, fmt, w * zoom, h * zoom,
-			pixfmt, SWS_FAST_BILINEAR | SWS_CPU_CAPS_MMX2,
+			pixfmt, SWS_FAST_BILINEAR,
 			NULL, NULL, NULL);
 	n = avpicture_get_size(pixfmt, w * zoom, h * zoom);
 	buf = av_malloc(n * sizeof(uint8_t));
