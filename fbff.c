@@ -23,8 +23,6 @@
 #define MIN(a, b)	((a) < (b) ? (a) : (b))
 #define MAX(a, b)	((a) > (b) ? (a) : (b))
 
-typedef unsigned int fbval_t;	/* framebuffer depth */
-
 static int paused;
 static int exited;
 static int domark;
@@ -77,7 +75,8 @@ static void draw_row(int rb, int cb, void *img, int cn)
 static void draw_frame(void *img, int linelen)
 {
 	int w, h, rn, cn, cb, rb;
-	int i, r, c;
+	int i, r, c, k;
+	int bpp = FBM_BPP(fb_mode());
 	ffs_vinfo(vffs, &w, &h);
 	rn = h * zoom;
 	cn = w * zoom;
@@ -87,12 +86,14 @@ static void draw_frame(void *img, int linelen)
 		for (r = 0; r < rn; r++)
 			draw_row(rb + r, cb, img + r * linelen, cn);
 	} else {
-		fbval_t *brow = malloc(cn * magnify * sizeof(fbval_t));
+		char *brow = malloc(cn * magnify * bpp);
 		for (r = 0; r < rn; r++) {
-			fbval_t *row = img + r * linelen;
+			char *src = img + r * linelen;
+			char *dst = brow;
 			for (c = 0; c < cn; c++)
 				for (i = 0; i < magnify; i++)
-					brow[c * magnify + i] = row[c];
+					for (k = 0; k < bpp; k++)
+						*dst++ = src[c * bpp + k];
 			for (i = 0; i < magnify; i++)
 				draw_row((rb + r) * magnify + i, cb, brow, cn * magnify);
 		}
@@ -530,8 +531,6 @@ int main(int argc, char *argv[])
 		if (fb_init(getenv("FBDEV")))
 			return 1;
 		ffs_vinfo(vffs, &w, &h);
-		if (magnify != 1 && sizeof(fbval_t) != FBM_BPP(fb_mode()))
-			fprintf(stderr, "fbff: fbval_t does not match\n");
 		if (fullscreen) {
 			float hz = (float) fb_rows() / h / magnify;
 			float wz = (float) fb_cols() / w / magnify;
