@@ -1,7 +1,7 @@
 /*
  * fbff - a small ffmpeg-based framebuffer/oss media player
  *
- * Copyright (C) 2009-2015 Ali Gholami Rudi
+ * Copyright (C) 2009-2021 Ali Gholami Rudi
  *
  * This program is released under the Modified BSD license.
  */
@@ -61,6 +61,7 @@ static void stroll(void)
 
 static void draw_row(int rb, int cb, void *img, int cn)
 {
+	int bpp = FBM_BPP(fb_mode());
 	if (rb < 0 || rb >= fb_rows())
 		return;
 	if (cb < 0) {
@@ -70,7 +71,7 @@ static void draw_row(int rb, int cb, void *img, int cn)
 	}
 	if (cb + cn >= fb_cols())
 		cn = cb < fb_cols() ? fb_cols() - cb : 0;
-	fb_set(rb, cb, img, cn);
+	memcpy(fb_mem(rb) + cb * bpp, img, cn * bpp);
 }
 
 static void draw_frame(void *img, int linelen)
@@ -526,7 +527,7 @@ int main(int argc, char *argv[])
 	}
 	if (video) {
 		int w, h;
-		if (fb_init())
+		if (fb_init(getenv("FBDEV")))
 			return 1;
 		ffs_vinfo(vffs, &w, &h);
 		if (magnify != 1 && sizeof(fbval_t) != FBM_BPP(fb_mode()))
