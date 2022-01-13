@@ -104,6 +104,7 @@ static void draw_frame(void *img, int linelen)
 static int oss_open(void)
 {
 	int rate, ch, bps;
+	int frag = 0x0003000b;	/* 0xmmmmssss: 2^m fragments of size 2^s each */
 	afd = open("/dev/dsp", O_WRONLY);
 	if (afd < 0)
 		return 1;
@@ -111,6 +112,7 @@ static int oss_open(void)
 	ioctl(afd, SOUND_PCM_WRITE_CHANNELS, &ch);
 	ioctl(afd, SOUND_PCM_WRITE_BITS, &bps);
 	ioctl(afd, SOUND_PCM_WRITE_RATE, &rate);
+	ioctl(afd, SOUND_PCM_SETFRAGMENT, &frag);
 	return 0;
 }
 
