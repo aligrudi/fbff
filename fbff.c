@@ -38,6 +38,7 @@ static int video = 1;		/* video stream; 0:none, 1:auto, >1:idx */
 static int audio = 1;		/* audio stream; 0:none, 1:auto, >1:idx */
 static int posx, posy;		/* video position */
 static int rjust, bjust;	/* justify video to screen right/bottom */
+static char *ossdsp;		/* OSS device */
 
 static struct ffs *affs;	/* audio ffmpeg stream */
 static struct ffs *vffs;	/* video ffmpeg stream */
@@ -105,7 +106,7 @@ static int oss_open(void)
 {
 	int rate, ch, bps;
 	int frag = 0x0003000b;	/* 0xmmmmssss: 2^m fragments of size 2^s each */
-	afd = open("/dev/dsp", O_WRONLY);
+	afd = open(ossdsp ? ossdsp : "/dev/dsp", O_WRONLY);
 	if (afd < 0)
 		return 1;
 	ffs_ainfo(affs, &rate, &bps, &ch);
@@ -505,10 +506,12 @@ int main(int argc, char *argv[])
 	struct termios termios;
 	pthread_t a_thread;
 	char *path = argv[argc - 1];
+	char *fbdev = getenv("FBDEV");
 	if (argc < 2) {
 		printf("usage: %s [-u -s60 ...] file\n", argv[0]);
 		return 1;
 	}
+	ossdsp = getenv("OSSDSP");
 	read_args(argc, argv);
 	ffs_globinit();
 	snprintf(filename, sizeof(filename), "%s", path);
@@ -530,7 +533,7 @@ int main(int argc, char *argv[])
 	}
 	if (video) {
 		int w, h;
-		if (fb_init(getenv("FBDEV")))
+		if (fb_init(fbdev))
 			return 1;
 		ffs_vinfo(vffs, &w, &h);
 		if (fullscreen) {
