@@ -117,17 +117,19 @@ static AVFrame *ffs_recv(struct ffs *ffs)
 {
 	AVCodecContext *vcc = ffs->cc;
 	AVPacket *pkt = NULL;
+	int errcnt = 0;
+	int ret;
 	while (1) {
-		int ret = avcodec_receive_frame(vcc, ffs->tmp);
-		if (ret == 0)
+		if ((ret = avcodec_receive_frame(vcc, ffs->tmp)) == 0)
 			return ffs->tmp;
 		if (ret < 0 && ret != AVERROR(EAGAIN))
 			return NULL;
 		if ((pkt = ffs_pkt(ffs)) == NULL)
 			return NULL;
-		if (avcodec_send_packet(vcc, pkt) < 0) {
+		if ((ret = avcodec_send_packet(vcc, pkt)) < 0) {
 			av_packet_unref(pkt);
-			return NULL;
+			if (ret == AVERROR(EOF) || errcnt++ == 3)
+				return NULL;
 		}
 		av_packet_unref(pkt);
 	}
@@ -252,7 +254,7 @@ int ffs_adec(struct ffs *ffs, void *buf, int blen)
 		return -1;
 	len = swr_convert(ffs->swrc, out, blen / ffs_bytespersample(ffs),
 		(void *) tmp->extended_data, tmp->nb_samples);
-	return len > 0 ? len * ffs_bytespersample(ffs) : -1;
+	return len > 0 ? len * ffs_bytespersample(ffs) : 0;
 }
 
 static int fbm2pixfmt(int fbm)
