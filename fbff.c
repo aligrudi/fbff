@@ -8,6 +8,7 @@
 #include <ctype.h>
 #include <fcntl.h>
 #include <pty.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,6 +39,7 @@ static int video = 1;		/* video stream; 0:none, 1:auto, >1:idx */
 static int audio = 1;		/* audio stream; 0:none, 1:auto, >1:idx */
 static int posx, posy;		/* video position */
 static int rjust, bjust;	/* justify video to screen right/bottom */
+static int nodraw;		/* stop drawing */
 static char *ossdsp;		/* OSS device */
 
 static struct ffs *affs;	/* audio ffmpeg stream */
@@ -78,6 +80,8 @@ static void draw_frame(void *img, int linelen)
 	int w, h, rn, cn, cb, rb;
 	int i, r, c, k;
 	int bpp = FBM_BPP(fb_mode());
+	if (nodraw)
+		return;
 	ffs_vinfo(vffs, &w, &h);
 	rn = h * zoom;
 	cn = w * zoom;
@@ -169,7 +173,7 @@ static void sub_read(void)
 	struct ffs *sffs = ffs_alloc(sub_path, FFS_SUBTS);
 	if (!sffs)
 		return;
-	while (sub_n < SUBSCNT && !ffs_sdec(sffs, &sub_text[sub_n][0], SUBSLEN,
+	while (sub_n < SUBSCNT && !ffs_sdec(sffs, sub_text[sub_n], SUBSLEN,
 			&sub_beg[sub_n], &sub_end[sub_n])) {
 		sub_n++;
 	}
@@ -501,6 +505,14 @@ static void term_done(struct termios *termios)
 	tcsetattr(0, 0, termios);
 }
 
+static void signalreceived(int sig)
+{
+	if (sig == SIGUSR1)
+		nodraw = 1;
+	if (sig == SIGUSR2)
+		nodraw = 0;
+}
+
 int main(int argc, char *argv[])
 {
 	struct termios termios;
@@ -544,6 +556,8 @@ int main(int argc, char *argv[])
 		ffs_vconf(vffs, zoom, fb_mode());
 	}
 	term_init(&termios);
+	signal(SIGUSR1, signalreceived);
+	signal(SIGUSR2, signalreceived);
 	mainloop();
 	term_done(&termios);
 	printf("\n");
