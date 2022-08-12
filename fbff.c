@@ -555,6 +555,9 @@ int main(int argc, char *argv[])
 		}
 		ffs_vconf(vffs, zoom, fb_mode());
 	}
+	if (getenv("TERM_PGID") != NULL && atoi(getenv("TERM_PGID")) == getppid())
+		if (tcsetpgrp(0, getppid()) == 0)
+			setpgid(0, getppid());
 	term_init(&termios);
 	signal(SIGUSR1, signalreceived);
 	signal(SIGUSR2, signalreceived);
