@@ -1,12 +1,14 @@
 /*
  * fbff - a small ffmpeg-based framebuffer/oss media player
  *
- * Copyright (C) 2009-2021 Ali Gholami Rudi
+ * Copyright (C) 2009-2024 Ali Gholami Rudi
  *
  * This program is released under the Modified BSD license.
  */
 #include <ctype.h>
+#include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <pty.h>
 #include <signal.h>
 #include <stdint.h>
@@ -15,7 +17,6 @@
 #include <string.h>
 #include <termios.h>
 #include <unistd.h>
-#include <sys/poll.h>
 #include <sys/soundcard.h>
 #include <pthread.h>
 #include "ffs.h"
@@ -110,9 +111,9 @@ static int oss_open(void)
 {
 	int rate, ch, bps;
 	int frag = 0x0003000b;	/* 0xmmmmssss: 2^m fragments of size 2^s each */
-	afd = open(ossdsp ? ossdsp : "/dev/dsp", O_WRONLY);
+	afd = open(ossdsp, O_WRONLY);
 	if (afd < 0)
-		return 1;
+		return errno;
 	ffs_ainfo(affs, &rate, &bps, &ch);
 	ioctl(afd, SOUND_PCM_WRITE_CHANNELS, &ch);
 	ioctl(afd, SOUND_PCM_WRITE_BITS, &bps);
@@ -523,7 +524,7 @@ int main(int argc, char *argv[])
 		printf("usage: %s [-u -s60 ...] file\n", argv[0]);
 		return 1;
 	}
-	ossdsp = getenv("OSSDSP");
+	ossdsp = getenv("OSSDSP") ? getenv("OSSDSP") : "/dev/dsp";
 	read_args(argc, argv);
 	ffs_globinit();
 	snprintf(filename, sizeof(filename), "%s", path);
@@ -536,11 +537,14 @@ int main(int argc, char *argv[])
 	if (sub_path)
 		sub_read();
 	if (audio) {
+		int err = oss_open();
 		ffs_aconf(affs);
-		if (oss_open()) {
-			fprintf(stderr, "fbff: /dev/dsp busy?\n");
+		if (err == ENOENT)
+			fprintf(stderr, "fbff: %s missing?\n", ossdsp);
+		else
+			fprintf(stderr, "fbff: %s busy?\n", ossdsp);
+		if (err != 0)
 			return 1;
-		}
 		pthread_create(&a_thread, NULL, process_audio, NULL);
 	}
 	if (video) {
