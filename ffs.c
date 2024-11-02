@@ -293,14 +293,11 @@ void ffs_aconf(struct ffs *ffs)
 {
 	int rate, bps, ch;
 	ffs_ainfo(ffs, &rate, &bps, &ch);
-	ffs->swrc = swr_alloc();
-	av_opt_set_int(ffs->swrc, "in_channel_layout", ffs->cc->channel_layout, 0);
-	/* av_opt_set_int(ffs->swrc, "in_channel_layout", ffs->cc->ch_layout, 0); */
-	av_opt_set_int(ffs->swrc, "in_sample_rate", ffs->cc->sample_rate, 0);
-	av_opt_set_sample_fmt(ffs->swrc, "in_sample_fmt", ffs->cc->sample_fmt, 0);
-	av_opt_set_int(ffs->swrc, "out_channel_layout", FFS_CHLAYOUT, 0);
-	av_opt_set_int(ffs->swrc, "out_sample_rate", rate, 0);
-	av_opt_set_sample_fmt(ffs->swrc, "out_sample_fmt", FFS_SAMPLEFMT, 0);
+	AVChannelLayout chlayout;
+	av_channel_layout_from_mask(&chlayout, FFS_CHLAYOUT);
+	swr_alloc_set_opts2(&ffs->swrc,
+		&chlayout, FFS_SAMPLEFMT, rate,
+		&ffs->cc->ch_layout, ffs->cc->sample_fmt, ffs->cc->sample_rate, 0, NULL);
 	swr_init(ffs->swrc);
 }
 
