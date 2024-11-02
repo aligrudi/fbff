@@ -539,12 +539,13 @@ int main(int argc, char *argv[])
 	if (audio) {
 		int err = oss_open();
 		ffs_aconf(affs);
-		if (err == ENOENT)
-			fprintf(stderr, "fbff: %s missing?\n", ossdsp);
-		else
-			fprintf(stderr, "fbff: %s busy?\n", ossdsp);
-		if (err != 0)
+		if (err != 0) {
+			if (err == ENOENT)
+				fprintf(stderr, "fbff: %s missing?\n", ossdsp);
+			else
+				fprintf(stderr, "fbff: %s busy?\n", ossdsp);
 			return 1;
+		}
 		pthread_create(&a_thread, NULL, process_audio, NULL);
 	}
 	if (video) {
