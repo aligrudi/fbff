@@ -90,7 +90,7 @@ void ffs_free(struct ffs *ffs)
 	if (ffs->tmp)
 		av_free(ffs->tmp);
 	if (ffs->cc)
-		avcodec_close(ffs->cc);
+		avcodec_free_context(&ffs->cc);
 	if (ffs->fc)
 		avformat_close_input(&ffs->fc);
 	free(ffs);
