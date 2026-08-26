@@ -14,6 +14,7 @@
 #define FFS_SAMPLEFMT		AV_SAMPLE_FMT_S16
 #define FFS_CHLAYOUT		AV_CH_LAYOUT_STEREO
 #define FFS_CHCNT		2
+static char *audiolayout = "L,R";
 
 #define MAX(a, b)		((a) < (b) ? (b) : (a))
 #define MIN(a, b)		((a) < (b) ? (a) : (b))
@@ -186,11 +187,13 @@ void ffs_vinfo(struct ffs *ffs, int *w, int *h)
 	*w = ffs->cc->width;
 }
 
-void ffs_ainfo(struct ffs *ffs, int *rate, int *bps, int *ch)
+void ffs_ainfo(struct ffs *ffs, ao_sample_format *afmt)
 {
-	*rate = ffs->cc->sample_rate;
-	*ch = FFS_CHCNT;
-	*bps = 16;
+	afmt->rate = ffs->cc->sample_rate;
+	afmt->channels = FFS_CHCNT;
+	afmt->bits = 16;
+	afmt->byte_format = AO_FMT_NATIVE;
+	afmt->matrix = audiolayout;
 }
 
 int ffs_vdec(struct ffs *ffs, void **buf)
@@ -291,12 +294,10 @@ void ffs_vconf(struct ffs *ffs, float zoom, int fbm)
 
 void ffs_aconf(struct ffs *ffs)
 {
-	int rate, bps, ch;
-	ffs_ainfo(ffs, &rate, &bps, &ch);
 	AVChannelLayout chlayout;
 	av_channel_layout_from_mask(&chlayout, FFS_CHLAYOUT);
 	swr_alloc_set_opts2(&ffs->swrc,
-		&chlayout, FFS_SAMPLEFMT, rate,
+		&chlayout, FFS_SAMPLEFMT, ffs->cc->sample_rate,
 		&ffs->cc->ch_layout, ffs->cc->sample_fmt, ffs->cc->sample_rate, 0, NULL);
 	swr_init(ffs->swrc);
 }

@@ -17,7 +17,6 @@
 #include <string.h>
 #include <termios.h>
 #include <unistd.h>
-#include <sys/soundcard.h>
 #include <pthread.h>
 #include "ffs.h"
 #include "draw.h"
@@ -41,11 +40,11 @@ static int audio = 1;		/* audio stream; 0:none, 1:auto, >1:idx */
 static int posx, posy;		/* video position */
 static int rjust, bjust;	/* justify video to screen right/bottom */
 static int nodraw;		/* stop drawing */
-static char *ossdsp;		/* OSS device */
+static int aoerr;		/* audio device closed due to error */
 
 static struct ffs *affs;	/* audio ffmpeg stream */
 static struct ffs *vffs;	/* video ffmpeg stream */
-static int afd;			/* oss fd */
+static ao_device *aodev;	/* libao audio device */
 static int vnum;		/* decoded video frame count */
 static long mark[256];		/* marks */
 
@@ -107,26 +106,25 @@ static void draw_frame(void *img, int linelen)
 	}
 }
 
-static int oss_open(void)
+static int audio_open(void)
 {
-	int rate, ch, bps;
-	int frag = 0x0003000b;	/* 0xmmmmssss: 2^m fragments of size 2^s each */
-	afd = open(ossdsp, O_WRONLY);
-	if (afd < 0)
+	ao_sample_format fmt = { 0 };
+	int aoid = ao_default_driver_id();
+	if (aoid < 0)
+		return AO_ENODRIVER;
+	ffs_ainfo(affs, &fmt);
+	aodev = ao_open_live(aoid, &fmt, NULL);
+	if (aodev == 0)
 		return errno;
-	ffs_ainfo(affs, &rate, &bps, &ch);
-	ioctl(afd, SOUND_PCM_WRITE_CHANNELS, &ch);
-	ioctl(afd, SOUND_PCM_WRITE_BITS, &bps);
-	ioctl(afd, SOUND_PCM_WRITE_RATE, &rate);
-	ioctl(afd, SOUND_PCM_SETFRAGMENT, &frag);
 	return 0;
 }
 
-static void oss_close(void)
+static void audio_close(void)
 {
-	if (afd > 0)
-		close(afd);
-	afd = 0;
+	if (aodev) {
+		ao_close(aodev);
+		aodev = 0;
+	}
 }
 
 /* audio buffers */
@@ -248,7 +246,7 @@ static void cmdinfo(void)
 	long pos = ffs_pos(ffs);
 	long percent = ffs_duration(ffs) ? pos * 10 / (ffs_duration(ffs) / 100) : 0;
 	printf("\r\33[K%c %3ld.%01ld%%  %3ld:%02ld.%01ld  (AV:%4d)     [%s] \r",
-		paused ? (afd < 0 ? '*' : ' ') : '>',
+		aoerr ? '*' : (paused ? ' ' : '>'),
 		percent / 10, percent % 10,
 		pos / 60000, (pos % 60000) / 1000, (pos % 1000) / 100,
 		video && audio ? ffs_avdiff(vffs, affs) : 0,
@@ -317,11 +315,6 @@ static void cmdexec(void)
 			break;
 		case ' ':
 		case 'p':
-			if (audio && paused)
-				if (oss_open())
-					break;
-			if (audio && !paused)
-				oss_close();
 			paused = !paused;
 			sync_cur = sync_cnt;
 			break;
@@ -423,8 +416,10 @@ static void *process_audio(void *dat)
 			a_reset = 0;
 			continue;
 		}
-		if (afd > 0) {
-			write(afd, a_buf[a_cons], a_len[a_cons]);
+		if (aodev) {
+			aoerr = !ao_play(aodev, a_buf[a_cons], a_len[a_cons]);
+			if (aoerr)
+				audio_close();
 			a_cons = (a_cons + 1) & (ABUFCNT - 1);
 		}
 	}
@@ -524,7 +519,8 @@ int main(int argc, char *argv[])
 		printf("usage: %s [-u -s60 ...] file\n", argv[0]);
 		return 1;
 	}
-	ossdsp = getenv("OSSDSP") ? getenv("OSSDSP") : "/dev/dsp";
+	aodev = 0;
+	aoerr = 0;
 	read_args(argc, argv);
 	ffs_globinit();
 	snprintf(filename, sizeof(filename), "%s", path);
@@ -537,13 +533,22 @@ int main(int argc, char *argv[])
 	if (sub_path)
 		sub_read();
 	if (audio) {
-		int err = oss_open();
+		ao_initialize();
+		aoerr = audio_open();
 		ffs_aconf(affs);
-		if (err != 0) {
-			if (err == ENOENT)
-				fprintf(stderr, "fbff: %s missing?\n", ossdsp);
-			else
-				fprintf(stderr, "fbff: %s busy?\n", ossdsp);
+		if (aoerr) {
+			switch (aoerr) {
+			case AO_ENODRIVER:
+				fprintf(stderr, "fbff: %s\n","No usable audio driver found.");
+				break;
+			case AO_ENOTLIVE:
+				fprintf(stderr, "fbff: %s\n", "Audio driver is not a live output device.");
+				break;
+			default:
+				fprintf(stderr, "fbff: %s\n", "Failed to open audio device.");
+				break;
+			}
+			ao_shutdown();
 			return 1;
 		}
 		pthread_create(&a_thread, NULL, process_audio, NULL);
@@ -576,7 +581,8 @@ int main(int argc, char *argv[])
 	}
 	if (audio) {
 		pthread_join(a_thread, NULL);
-		oss_close();
+		audio_close();
+		ao_shutdown();
 		ffs_free(affs);
 	}
 	return 0;

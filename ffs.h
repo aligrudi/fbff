@@ -1,3 +1,5 @@
+#include <ao/ao.h>
+
 #define FFS_AUDIO	0x1000
 #define FFS_VIDEO	0x2000
 #define FFS_SUBTS	0x4000
@@ -17,7 +19,7 @@ int ffs_avdiff(struct ffs *ffs, struct ffs *affs);
 
 /* audio */
 void ffs_aconf(struct ffs *ffs);
-void ffs_ainfo(struct ffs *ffs, int *rate, int *bps, int *ch);
+void ffs_ainfo(struct ffs *ffs, ao_sample_format *afmt);
 int ffs_adec(struct ffs *ffs, void *buf, int blen);
 
 /* video */
